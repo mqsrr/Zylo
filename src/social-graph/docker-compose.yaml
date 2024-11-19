@@ -1,0 +1,14 @@
+services:
+  social-graph-neo4j:
+    image: neo4j:5.23
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+      
+  social-graph:
+    image: mqsr/zylo/social-graph:1.0.0
+    ports:
+      - "8091:8080"
+    env_file:
+      - .env
+    

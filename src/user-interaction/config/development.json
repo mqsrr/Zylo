@@ -1,0 +1,26 @@
+{
+  "environment": "development",
+
+  "server": {
+    "port": 8083
+  },
+
+  "database": {
+    "uri": "postgresql://testUser:Pass1234!@localhost:5433/testDb"
+  },
+  "redis": {
+    "uri": "redis://127.0.0.1/",
+    "backup_uri": "redis://127.0.0.1:6378/"
+  },
+  "auth": {
+    "issuer": "user-management",
+    "audience": "zylo-app",
+    "secret": "3"
+  },
+  "amq": {
+    "uri": "amqp://127.0.0.1:5672"
+  },
+  "logger": {
+    "level": "info"
+  }
+}

@@ -1,0 +1,37 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="GoDfaErrorMayBeNotNil" enabled="true" level="WARNING" enabled_by_default="true">
+      <functions>
+        <function importPath="github.com/mqsrr/zylo/social-graph/internal/api" name="SetupNeo4jContainer" />
+      </functions>
+    </inspection_tool>
+    <inspection_tool class="GoUnhandledErrorResult" enabled="true" level="WARNING" enabled_by_default="true">
+      <functions>
+        <function importPath="fmt" name="Printf" />
+        <function importPath="fmt" name="Print" />
+        <function importPath="errors" name="New" />
+        <function importPath="fmt" name="Println" />
+        <function importPath="fmt" name="Errorf" />
+        <function importPath="errors" name="Join" />
+        <function importPath="errors" name="Unwrap" />
+        <function importPath="math/rand" name="Read" />
+        <function importPath="github.com/go-chi/render" name="Render" />
+      </functions>
+      <methods>
+        <method importPath="bytes" receiver="*Buffer" name="Write" />
+        <method importPath="bytes" receiver="*Buffer" name="WriteByte" />
+        <method importPath="strings" receiver="*Builder" name="Write" />
+        <method importPath="math/rand" receiver="*Rand" name="Read" />
+        <method importPath="strings" receiver="*Builder" name="WriteString" />
+        <method importPath="bytes" receiver="*Buffer" name="WriteRune" />
+        <method importPath="strings" receiver="*Builder" name="WriteByte" />
+        <method importPath="hash" receiver="Hash" name="Write" />
+        <method importPath="bytes" receiver="*Buffer" name="WriteString" />
+        <method importPath="strings" receiver="*Builder" name="WriteRune" />
+        <method importPath="github.com/neo4j/neo4j-go-driver/v5/neo4j" receiver="SessionWithContext" name="Close" />
+        <method importPath="net/http" receiver="ResponseWriter" name="Write" />
+      </methods>
+    </inspection_tool>
+  </profile>
+</component>

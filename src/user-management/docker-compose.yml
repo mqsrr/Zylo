@@ -1,0 +1,19 @@
+﻿services:
+  user-management-postgres:
+    image: postgres:16.0
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: testUser
+      POSTGRES_PASSWORD: Test1234!
+      POSTGRES_DB: testDb
+      
+  rabbitMq:
+    image: rabbitmq:management-alpine
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"

@@ -1,0 +1,12 @@
+services:
+  feed-service-neo4j:
+    image: neo4j:5.23
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+  feed-service:
+    image: mqsr/zylo/feed-service:1.0.0
+    ports:
+      - "8092:8080"
+    env_file:
+      - .env

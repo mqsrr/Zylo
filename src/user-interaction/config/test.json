@@ -1,0 +1,16 @@
+{
+  "environment": "test",
+
+  "server": {
+    "port": 8080
+  },
+
+  "database": {
+    "uri": "mongodb://localhost:27017",
+    "name": "media"
+  },
+  
+  "logger": {
+    "level": "error"
+  }
+}

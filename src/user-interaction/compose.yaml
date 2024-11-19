@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16.0
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: testDb
+      POSTGRES_USER: testUser
+      POSTGRES_PASSWORD: Pass1234!
+  
+  backup-redis:
+    image: redis
+    ports:
+      - "6378:6379"
+  user-interaction:
+    image: mqsr/zylo/user-interaction:1.0.0
+    ports:
+      - "8081:8080"
+    env_file:
+      - .env
