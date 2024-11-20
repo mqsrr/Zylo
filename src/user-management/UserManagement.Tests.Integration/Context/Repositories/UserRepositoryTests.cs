@@ -34,6 +34,7 @@ public sealed class UserRepositoryTests : IAsyncDisposable
     private readonly Fixture _fixture;
     private readonly S3Settings _s3Settings;
     private readonly IDbConnectionFactory _dbConnectionFactory;
+    private readonly IHashService _hashService;
     private readonly AsyncServiceScope _serviceScope;
 
     private readonly UserRepository _sut;
@@ -48,7 +49,9 @@ public sealed class UserRepositoryTests : IAsyncDisposable
         _serviceScope = _factory.Services.CreateAsyncScope();
         var imageService = _serviceScope.ServiceProvider.GetRequiredService<IImageService>();
         _testHarness = _serviceScope.ServiceProvider.GetTestHarness();
+        
         _dbConnectionFactory = _serviceScope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
+        _hashService = _serviceScope.ServiceProvider.GetRequiredService<IHashService>();
         _s3Settings = _serviceScope.ServiceProvider.GetRequiredService<IOptions<S3Settings>>().Value;
 
         var publisher = _serviceScope.ServiceProvider.GetRequiredService<IPublisher>();
@@ -175,7 +178,7 @@ public sealed class UserRepositoryTests : IAsyncDisposable
     }
     
     [Fact]
-    public async Task CreateAsync_ShouldThrowException_WhenUserAlreadyExists()
+    public async Task CreateAsync_ShouldNotThrowException_WhenUserAlreadyExists()
     {
         // Arrange
         _factory.S3.ClearSubstitute();
@@ -191,7 +194,7 @@ public sealed class UserRepositoryTests : IAsyncDisposable
         var createFunc = async () => await _sut.CreateAsync(user, registerRequest.ProfileImage, registerRequest.BackgroundImage, cancellationToken);
 
         // Assert
-        await createFunc.Should().ThrowAsync<NpgsqlException>();
+        await createFunc.Should().NotThrowAsync<NpgsqlException>();
     }
 
     [Fact]
@@ -282,7 +285,7 @@ public sealed class UserRepositoryTests : IAsyncDisposable
         _factory.S3.ClearSubstitute();
 
         var registerRequest = _fixture.Create<RegisterRequest>();
-        var identity = registerRequest.ToIdentity();
+        var identity = registerRequest.ToIdentity(_hashService);
         
         var user = registerRequest.ToUser();
         var cancellationToken = CancellationToken.None;

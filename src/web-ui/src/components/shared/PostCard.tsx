@@ -13,6 +13,7 @@ import {EditIcon} from "lucide-react";
 import React, {useState} from "react";
 import {formatDistanceToNow} from "date-fns";
 import {Reply} from "@/models/Reply.ts";
+import {usePostContext} from "@/hooks/usePostContext.ts";
 
 type PostCardProps = {
     post: Post;
@@ -20,6 +21,7 @@ type PostCardProps = {
 
 const PostCard = ({post}: PostCardProps) => {
     const {user} = useUserContext();
+    const {updatePostInFeed} = usePostContext();
     const [replies, setReplies] = useState<Reply[]>(post.replies || []);
     const relativeDate = formatDistanceToNow(new Date(post.createdAt), {
         addSuffix: true,
@@ -33,6 +35,9 @@ const PostCard = ({post}: PostCardProps) => {
 
     const handleReplySubmit = (newReply: Reply) => {
         setReplies([newReply, ...replies]);
+
+        post.replies?.push(newReply);
+        updatePostInFeed(post);
     };
 
     return (

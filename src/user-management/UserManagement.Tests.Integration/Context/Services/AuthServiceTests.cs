@@ -31,8 +31,10 @@ public sealed class AuthServiceTests : IAsyncDisposable
     private readonly UserManagementApiFactory _factory;
     private readonly IDbConnectionFactory _dbConnectionFactory;
     private readonly ITokenWriter _tokenWriter;
+    private readonly IHashService _hashService;
     private readonly S3Settings _s3Settings;
     private readonly ITestHarness _testHarness;
+    private readonly IOtpService _otpService;
     private readonly AuthService _authService;
     private readonly AsyncServiceScope _serviceScope;
 
@@ -48,11 +50,13 @@ public sealed class AuthServiceTests : IAsyncDisposable
         _serviceScope = _factory.Services.CreateAsyncScope();
         _dbConnectionFactory = _serviceScope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
         _tokenWriter = _serviceScope.ServiceProvider.GetRequiredService<ITokenWriter>();
+        _hashService = _serviceScope.ServiceProvider.GetRequiredService<IHashService>();
+        _otpService = _serviceScope.ServiceProvider.GetRequiredService<IOtpService>();
         _testHarness = _serviceScope.ServiceProvider.GetTestHarness();
         _s3Settings = _serviceScope.ServiceProvider.GetRequiredService<IOptions<S3Settings>>().Value;
 
         var publisher = _serviceScope.ServiceProvider.GetRequiredService<IPublisher>();
-        _authService = new AuthService(_dbConnectionFactory, _tokenWriter, publisher);
+        _authService = new AuthService(_dbConnectionFactory, _tokenWriter, publisher, _hashService);
     }
 
     [Fact]
@@ -62,11 +66,10 @@ public sealed class AuthServiceTests : IAsyncDisposable
         _factory.S3.ClearSubstitute();
         var registerRequest = _fixture.Create<RegisterRequest>();
 
-        var expectedIdentity = registerRequest.ToIdentity();
+        var expectedIdentity = registerRequest.ToIdentity(_hashService);
         var expectedUser = registerRequest.ToUser();
 
         var expectedAccessToken = _tokenWriter.GenerateAccessToken(expectedIdentity);
-        var expectedRefreshToken = _tokenWriter.GenerateRefreshToken(expectedIdentity.Id);
 
         string imageKey = $"profile_images/{registerRequest.Id}";
         string backgroundImageKey = $"background_images/{registerRequest.Id}";
@@ -101,35 +104,18 @@ public sealed class AuthServiceTests : IAsyncDisposable
 
         // Assert
         authResult.Id.Should().BeEquivalentTo(registerRequest.Id.Value);
-        refreshToken.Should().NotBeNull();
+        refreshToken.Should().BeNull();
+        
+        authResult.AccessToken.Should().BeNull();
+        authResult.Success.Should().BeTrue();
 
         createdIdentity.Should().BeEquivalentTo(expectedIdentity, options =>
             options.Excluding(identity => identity.PasswordHash)
                 .Using<string>(ctx => ctx.Subject.Length.Should().Be(ctx.Expectation.Length))
-                .When(info => info.Path.EndsWith("PasswordHash")));
+                .When(info => info.Path.EndsWith("PasswordHash") || info.Path.EndsWith("EmailHash")||
+                              info.Path.EndsWith("PasswordSalt") || info.Path.EndsWith("EmailSalt")));
 
         createdUser.Should().BeEquivalentTo(expectedUser);
-
-        authResult.AccessToken.Should().BeEquivalentTo(expectedAccessToken, options =>
-        {
-            options = options
-                .Excluding(token => token.Value)
-                .Using<DateTime>(ctx => ctx.Subject.Should().BeCloseTo(ctx.Expectation, TimeSpan.FromSeconds(1)))
-                .When(info => info.Path.EndsWith("ExpirationDate"));
-
-            return options.Using<string>(ctx => ctx.Subject.Length.Should().Be(ctx.Expectation.Length))
-                .When(info => info.Path.EndsWith("Value"));
-        });
-
-        refreshToken.Should().BeEquivalentTo(expectedRefreshToken.ToResponse(), options =>
-        {
-            options = options
-                .Using<DateTime>(ctx => ctx.Subject.Should().BeCloseTo(ctx.Expectation, TimeSpan.FromMilliseconds(500)))
-                .When(info => info.Path.EndsWith("ExpirationDate"));
-
-            return options.Using<string>(ctx => ctx.Subject.Length.Should().Be(ctx.Expectation.Length))
-                .When(info => info.Path.EndsWith("Value"));
-        });
 
         await _factory.S3.Received().PutObjectAsync(Arg.Is<PutObjectRequest>(r =>
                 r.BucketName == _s3Settings.BucketName &&
@@ -148,10 +134,8 @@ public sealed class AuthServiceTests : IAsyncDisposable
         publishedMessage!.Context.Message.Should().BeEquivalentTo(createdUser, options => options.ExcludingMissingMembers());
         publishedMessage.Context.RoutingKey().Should().BeEquivalentTo("user.created");
         
-        byte[]? token = _tokenWriter.ParseRefreshToken(refreshToken!.Value);
-        await connection.ExecuteAsync(SqlQueries.Authentication.DeleteById, new {Id = registerRequest.Id.Value}, transaction);
-        await connection.ExecuteAsync(SqlQueries.Authentication.DeleteRefreshTokenById, new {Token = token}, transaction);
-        await connection.ExecuteAsync(SqlQueries.Users.DeleteById, new {Id = registerRequest.Id.Value}, transaction);
+        await connection.ExecuteAsync(SqlQueries.Authentication.DeleteById, new {Id = registerRequest.Id.Value});
+        await connection.ExecuteAsync(SqlQueries.Users.DeleteById, new {Id = registerRequest.Id.Value});
     }
 
     [Fact]
@@ -161,7 +145,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
         _factory.S3.ClearSubstitute();
 
         var registerRequest = _fixture.Create<RegisterRequest>();
-        var identity = registerRequest.ToIdentity();
+        var identity = registerRequest.ToIdentity(_hashService);
 
         var cancellationToken = CancellationToken.None;
 
@@ -198,7 +182,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
             .With(r => r.Password, registerRequest.Password)
             .Create();
 
-        var expectedIdentity = registerRequest.ToIdentity();
+        var expectedIdentity = registerRequest.ToIdentity(_hashService);
         var expectedUser = registerRequest.ToUser();
 
         var expectedAccessToken = _tokenWriter.GenerateAccessToken(expectedIdentity);
@@ -213,8 +197,21 @@ public sealed class AuthServiceTests : IAsyncDisposable
         await connection.ExecuteAsync(SqlQueries.Authentication.CreateRefreshToken,
             new {IdentityId = expectedIdentity.Id, expectedRefreshToken.Token, expectedRefreshToken.ExpirationDate}, transaction);
 
+        string code = _otpService.CreateOneTimePassword(6);
+        (string codeHash, string codeSalt) = _hashService.Hash(code);
+
+        await connection.ExecuteAsync(SqlQueries.Authentication.CreateOtpCode, new
+        {
+            Id = registerRequest.Id,
+            CodeHash = codeHash,
+            Salt = codeSalt,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        }, transaction);
+        
         await transaction.CommitAsync(cancellationToken);
+        
         // Act
+        await _authService.VerifyEmailAsync(registerRequest.Id, code, cancellationToken);
         var (authResult, refreshToken) = await _authService.LoginAsync(loginRequest, cancellationToken);
 
         // Assert
@@ -256,7 +253,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
             .With(r => r.Password, registerRequest.Password)
             .Create();
 
-        var expectedIdentity = registerRequest.ToIdentity();
+        var expectedIdentity = registerRequest.ToIdentity(_hashService);
         var expectedUser = registerRequest.ToUser();
 
         var expectedAccessToken = _tokenWriter.GenerateAccessToken(expectedIdentity);
@@ -268,9 +265,22 @@ public sealed class AuthServiceTests : IAsyncDisposable
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         await connection.ExecuteAsync(SqlQueries.Authentication.Register, expectedIdentity, transaction);
+        string code = _otpService.CreateOneTimePassword(6);
+        (string codeHash, string codeSalt) = _hashService.Hash(code);
+
+        await connection.ExecuteAsync(SqlQueries.Authentication.CreateOtpCode, new
+        {
+            Id = registerRequest.Id,
+            CodeHash = codeHash,
+            Salt = codeSalt,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        });
+        
         await transaction.CommitAsync(cancellationToken);
         
         // Act
+        await _authService.VerifyEmailAsync(registerRequest.Id, code, cancellationToken);
+        
         var (authResult, refreshToken) = await _authService.LoginAsync(loginRequest, cancellationToken);
 
         // Assert
@@ -315,7 +325,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
             .WithAutoProperties()
             .Create();
 
-        var identityToCreate = registerRequest.ToIdentity();
+        var identityToCreate = registerRequest.ToIdentity(_hashService);
         var cancellationToken = CancellationToken.None;
 
         await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
@@ -329,7 +339,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
 
         // Assert
         authResult.Success.Should().Be(false);
-        authResult.Error.Should().BeEquivalentTo("Incorrect credentials!");
+        authResult.Error.Should().BeEquivalentTo("Incorrect credentials or the email address was not verified!");
         refreshToken.Should().BeNull();
 
         await connection.ExecuteAsync(SqlQueries.Authentication.DeleteById, new {registerRequest.Id}, transaction);
@@ -363,7 +373,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
         var registerRequest = _fixture.Create<RegisterRequest>();
         var cancellationToken = CancellationToken.None;
 
-        var expectedIdentity = registerRequest.ToIdentity();
+        var expectedIdentity = registerRequest.ToIdentity(_hashService);
         var expectedAccessToken = _tokenWriter.GenerateAccessToken(expectedIdentity);
         var expectedRefreshToken = _tokenWriter.GenerateRefreshToken(expectedIdentity.Id);
 
@@ -452,7 +462,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
         _factory.S3.ClearSubstitute();
 
         var cancellationToken = CancellationToken.None;
-        var identity = _fixture.Create<RegisterRequest>().ToIdentity();
+        var identity = _fixture.Create<RegisterRequest>().ToIdentity(_hashService);
         var refreshTokenToCreate = _tokenWriter.GenerateRefreshToken(identity.Id);
 
         await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
@@ -482,7 +492,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
     {
         // Arrange
         var registerRequest = _fixture.Create<RegisterRequest>();
-        var identity = registerRequest.ToIdentity();
+        var identity = registerRequest.ToIdentity(_hashService);
         var refreshToken = _tokenWriter.GenerateRefreshToken(identity.Id);
 
         await using var connection = await _dbConnectionFactory.CreateAsync(CancellationToken.None);
@@ -529,7 +539,7 @@ public sealed class AuthServiceTests : IAsyncDisposable
         var registerRequest = _fixture.Create<RegisterRequest>();
         var cancellationToken = CancellationToken.None;
         
-        var identity = registerRequest.ToIdentity();
+        var identity = registerRequest.ToIdentity(_hashService);
         var refreshToken = _tokenWriter.GenerateRefreshToken(identity.Id);
         
         await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);

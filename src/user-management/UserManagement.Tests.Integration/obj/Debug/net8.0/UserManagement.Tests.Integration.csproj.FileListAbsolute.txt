@@ -497,3 +497,4 @@ D:\Codes\Zylo\src\user-management\UserManagement.Tests.Integration\bin\Debug\net
 D:\Codes\Zylo\src\user-management\UserManagement.Tests.Integration\bin\Debug\net8.0\Grpc.Core.Api.dll
 D:\Codes\Zylo\src\user-management\UserManagement.Tests.Integration\bin\Debug\net8.0\Grpc.HealthCheck.dll
 D:\Codes\Zylo\src\user-management\UserManagement.Tests.Integration\bin\Debug\net8.0\Grpc.Net.Common.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Tests.Integration\obj\Debug\net8.0\UserManagement.Tests.Integration.sourcelink.json

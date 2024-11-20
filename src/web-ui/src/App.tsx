@@ -28,6 +28,7 @@ export default function App() {
                     <Route path="/profile/:id" element={<Profile/>}/>
                     <Route path="/profile/:id/socials" element={<Social/>}/>
                     <Route path="/update-profile/:id" element={<UpdateProfile/>}/>
+                    {/*<Route path="/notifications" element={<Notifications/>}/>*/}
                 </Route>
             </Routes>
             <Toaster/>

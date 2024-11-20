@@ -1,11 +1,19 @@
 use crate::services::key_vault::KeyVault;
-use crate::utils::constants::{JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_BACKUP_CONNECTION_STRING, REDIS_CONNECTION_STRING, REDIS_EXPIRE, USER_GRPC_SERVER};
+use crate::utils::constants::{EXPOSED_PORT, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_BACKUP_CONNECTION_STRING, REDIS_CONNECTION_STRING, REDIS_EXPIRE, USER_GRPC_SERVER};
 use serde::Deserialize;
 use std::fmt;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Server {
     pub port: u16,
+}
+
+impl Server {
+    async fn from_key_vault(key_vault: &KeyVault) -> Self {
+        Self{
+            port: key_vault.get_secret(EXPOSED_PORT).await.unwrap().parse().unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -100,7 +108,7 @@ pub struct AppConfig {
 impl AppConfig {
     pub async fn new (key_vault: &KeyVault) -> Self {
         Self{
-            server: Server{ port: 8083 },
+            server: Server::from_key_vault(key_vault).await,
             logger: Logger {level: "info".to_string()},
             database: Database::from_key_vault(key_vault).await,
             redis: Redis::from_key_vault(key_vault).await,

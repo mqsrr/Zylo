@@ -50,9 +50,12 @@ public sealed class ImageServiceFacts
         var metadataResponse = new GetObjectMetadataResponse
         {
             HttpStatusCode = HttpStatusCode.OK,
+            Headers =
+            {
+                ContentType = "image/jpeg"
+            },
             Metadata =
             {
-                ["Content-Type"] = "image/jpeg",
                 ["file-name"] = "profile.jpg"
             }
         };

@@ -42,11 +42,10 @@ public sealed class AuthControllerTests
         // Arrange
         var request = _fixture.Create<RegisterRequest>();
         var authResult = _fixture.Create<AuthenticationResult>();
-        var refreshToken = _fixture.Create<RefreshTokenResponse>();
         var cancellationToken = CancellationToken.None;
         
         _authService.RegisterAsync(request, cancellationToken)
-            .Returns((authResult, refreshToken));
+            .Returns((authResult, null));
 
         // Act
         var result = await _sut.Register(request, cancellationToken);

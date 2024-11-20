@@ -1,4 +1,4 @@
-﻿import {HomeIcon, PlusSquareIcon, UserIcon} from "lucide-react";
+﻿import {BellIcon, HomeIcon, PlusSquareIcon, UserIcon} from "lucide-react";
 
 export const sidebarLinks = [
     {
@@ -15,6 +15,11 @@ export const sidebarLinks = [
         icon: UserIcon,
         route: "/profile/",
         label: "Socials",
+    },
+    {
+        icon: BellIcon,
+        route: "/notifications",
+        label: "Notifications",
     },
 ];
 
@@ -33,5 +38,10 @@ export const bottombarLinks = [
         icon: UserIcon,
         route: "/profile/",
         label: "Socials",
+    },
+    {
+        icon: BellIcon,
+        route: "/notifications",
+        label: "Notifications",
     },
 ];

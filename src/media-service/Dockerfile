@@ -1,23 +1,38 @@
 # syntax=docker/dockerfile:1
 
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Dockerfile reference guide at
-# https://docs.docker.com/go/dockerfile-reference/
-
-# Want to help us make this template better? Share your feedback here: https://forms.gle/ybq9Krt8jtBL3iCk7
-
+# Use an argument for the Rust version for flexibility
 ARG RUST_VERSION=1.82.0-bullseye
 
-
+# Build stage
 FROM rust:${RUST_VERSION} AS builder
+
+# Install required build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set the working directory
 WORKDIR /usr/src/media-service
 
+# Copy the source code
 COPY . .
-RUN cargo install --path .
 
+# Install dependencies and build the application
+RUN cargo build --release
+
+# Production stage
 FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local/cargo/bin/media-service /usr/local/bin/media-service
 
+# Install required runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/media-service/target/release/media-service /usr/local/bin/media-service
+
+# Expose the application port
 EXPOSE 8080
+
+# Command to run the application
 CMD ["media-service"]

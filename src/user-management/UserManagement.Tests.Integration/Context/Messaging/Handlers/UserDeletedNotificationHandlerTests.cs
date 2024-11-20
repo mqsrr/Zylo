@@ -22,6 +22,7 @@ public sealed class UserDeletedNotificationHandlerTests : IAsyncDisposable
 {
     private readonly ITestHarness _testHarness;
     private readonly IDbConnectionFactory _dbConnectionFactory;
+    private readonly IHashService _hashService;
     private readonly Fixture _fixture;
     private readonly AsyncServiceScope _serviceScope;
 
@@ -34,6 +35,7 @@ public sealed class UserDeletedNotificationHandlerTests : IAsyncDisposable
 
         _serviceScope = factory.Services.CreateAsyncScope();
         _dbConnectionFactory = _serviceScope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
+        _hashService = _serviceScope.ServiceProvider.GetRequiredService<IHashService>();
         _testHarness = _serviceScope.ServiceProvider.GetTestHarness();
 
         var publishEndpoint = _serviceScope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
@@ -46,7 +48,7 @@ public sealed class UserDeletedNotificationHandlerTests : IAsyncDisposable
     {
         // Arrange
         var cancellationToken = CancellationToken.None;
-        var identity = _fixture.Create<RegisterRequest>().ToIdentity();
+        var identity = _fixture.Create<RegisterRequest>().ToIdentity(_hashService);
         var userDeletedNotification = _fixture.Build<UserDeletedNotification>()
             .With(n => n.Id, UserId.Parse(identity.Id.Value.ToString()))
             .Create();

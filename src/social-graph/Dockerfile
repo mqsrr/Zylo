@@ -15,7 +15,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -v -o /usr/local/bin/${APP_NAME_ARG} ./cmd
 FROM debian:bullseye-slim
 ARG APP_NAME_ARG
 ENV APP_NAME=${APP_NAME_ARG}
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/${APP_NAME_ARG} /usr/local/bin/${APP_NAME_ARG}
 

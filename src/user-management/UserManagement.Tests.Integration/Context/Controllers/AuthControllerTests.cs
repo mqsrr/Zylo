@@ -15,6 +15,7 @@ using UserManagement.Application.Factories.Abstractions;
 using UserManagement.Application.Helpers;
 using UserManagement.Application.Mappers;
 using UserManagement.Application.Models;
+using UserManagement.Application.Services.Abstractions;
 using UserManagement.Tests.Integration.Fixtures;
 using UserManagement.Tests.Integration.Fixtures.Customizations;
 using UserManagement.Tests.Integration.Fixtures.Fakers;
@@ -26,6 +27,8 @@ public sealed class AuthControllerTests : IAsyncDisposable
 {
     private readonly UserManagementApiFactory _factory;
     private readonly IDbConnectionFactory _dbConnectionFactory;
+    private readonly IOtpService _otpService;
+    private readonly IHashService _hashService;
     private readonly Fixture _fixture;
     private readonly AsyncServiceScope _serviceScope;
 
@@ -37,10 +40,12 @@ public sealed class AuthControllerTests : IAsyncDisposable
         _factory = factory;
         _serviceScope = factory.Services.CreateAsyncScope();
         _dbConnectionFactory = _serviceScope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
+        _hashService = _serviceScope.ServiceProvider.GetRequiredService<IHashService>();
+        _otpService = _serviceScope.ServiceProvider.GetRequiredService<IOtpService>();
     }
 
     [Fact]
-    public async Task Register_ShouldReturnOk_WithAuthResultAndSetCookie_WhenRegisterIsSuccessful()
+    public async Task Register_ShouldReturnOk_WithAuthResult_WhenRegisterIsSuccessful()
     {
         // Arrange
         _factory.S3.ClearSubstitute();
@@ -85,9 +90,7 @@ public sealed class AuthControllerTests : IAsyncDisposable
         authResult.Should().NotBeNull();
         authResult!.Success.Should().BeTrue();
 
-        response.Headers.Should().Contain(header => header.Key == "Set-Cookie");
-        string? cookie = response.Headers.GetValues("Set-Cookie").FirstOrDefault();
-        cookie.Should().Contain("refresh-token=");
+        response.Headers.Should().NotContain(header => header.Key == "Set-Cookie");
 
         await _factory.S3.ReceivedWithAnyArgs(2).PutObjectAsync(default, cancellationToken);
     }
@@ -101,7 +104,7 @@ public sealed class AuthControllerTests : IAsyncDisposable
         using var httpClient = _factory.CreateClient();
 
         await using var connection = await _dbConnectionFactory.CreateAsync(CancellationToken.None);
-        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity());
+        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity(_hashService));
 
         using var formData = new MultipartFormDataContent();
 
@@ -148,9 +151,26 @@ public sealed class AuthControllerTests : IAsyncDisposable
         using var httpClient = _factory.CreateClient();
 
         await using var connection = await _dbConnectionFactory.CreateAsync(CancellationToken.None);
-        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity());
+        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity(_hashService));
 
+        string code = _otpService.CreateOneTimePassword(6);
+        (string codeHash, string codeSalt) = _hashService.Hash(code);
+
+        await connection.ExecuteAsync(SqlQueries.Authentication.CreateOtpCode, new
+        {
+            Id = registerRequest.Id,
+            CodeHash = codeHash,
+            Salt = codeSalt,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        });
+        
         // Act
+        string verifyEndpoint = ApiEndpoints.Authentication.VerifyUserEmail.Replace("{id}", registerRequest.Id.ToString());
+        await httpClient.PostAsJsonAsync(verifyEndpoint, new
+        {
+            Otp = code
+        });
+        
         var response = await httpClient.PostAsJsonAsync(ApiEndpoints.Authentication.Login, loginRequest);
 
         // Assert
@@ -203,10 +223,25 @@ public sealed class AuthControllerTests : IAsyncDisposable
         using var httpClient = _factory.CreateDefaultClient(_factory.Server.BaseAddress, new CookieContainerHandler(cookieContainer));
 
         await using var connection = await _dbConnectionFactory.CreateAsync(CancellationToken.None);
-        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity());
+        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity(_hashService));
         
+        string code = _otpService.CreateOneTimePassword(6);
+        (string codeHash, string codeSalt) = _hashService.Hash(code);
+
+        await connection.ExecuteAsync(SqlQueries.Authentication.CreateOtpCode, new
+        {
+            Id = registerRequest.Id,
+            CodeHash = codeHash,
+            Salt = codeSalt,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        });
         
         // Act
+        string verifyEndpoint = ApiEndpoints.Authentication.VerifyUserEmail.Replace("{id}", registerRequest.Id.ToString());
+        await httpClient.PostAsJsonAsync(verifyEndpoint, new
+        {
+            Otp = code
+        });
         var loginResponse = await httpClient.PostAsJsonAsync(ApiEndpoints.Authentication.Login, loginRequest);
         
         var setCookieHeader = loginResponse.Headers.FirstOrDefault(header => header.Key == "Set-Cookie").Value;
@@ -267,9 +302,26 @@ public sealed class AuthControllerTests : IAsyncDisposable
         using var httpClient = _factory.CreateDefaultClient(_factory.Server.BaseAddress, new CookieContainerHandler(cookieContainer));
 
         await using var connection = await _dbConnectionFactory.CreateAsync(CancellationToken.None);
-        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity());
+        await connection.ExecuteAsync(SqlQueries.Authentication.Register, registerRequest.ToIdentity(_hashService));
 
+        string code = _otpService.CreateOneTimePassword(6);
+        (string codeHash, string codeSalt) = _hashService.Hash(code);
+
+        await connection.ExecuteAsync(SqlQueries.Authentication.CreateOtpCode, new
+        {
+            Id = registerRequest.Id,
+            CodeHash = codeHash,
+            Salt = codeSalt,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+        });
+        
         // Act
+        string verifyEndpoint = ApiEndpoints.Authentication.VerifyUserEmail.Replace("{id}", registerRequest.Id.ToString());
+        await httpClient.PostAsJsonAsync(verifyEndpoint, new
+        {
+            Otp = code
+        });
+        
         var loginResponse = await httpClient.PostAsJsonAsync(ApiEndpoints.Authentication.Login, loginRequest);
         
         var setCookieHeader = loginResponse.Headers.FirstOrDefault(header => header.Key == "Set-Cookie").Value;

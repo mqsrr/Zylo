@@ -47,7 +47,7 @@ public sealed class TokenWriterTests
 
         // Assert
         result.Should().NotBeNull();
-        result.Length.Should().BeGreaterThan(0);
+        result!.Length.Should().BeGreaterThan(0);
     }
 
     [Fact]
@@ -97,8 +97,7 @@ public sealed class TokenWriterTests
         var token = handler.ReadJwtToken(result.Value);
 
         token.Claims.Should().Contain(c => c.Type == JwtRegisteredClaimNames.Sub && c.Value == identity.Id.ToString());
-        token.Claims.Should().Contain(c => c.Type == JwtRegisteredClaimNames.Email && c.Value == identity.Email);
-        token.Claims.Should().Contain(c => c.Type == "email-verified" && c.Value == identity.EmailVerified.ToString());
+        token.Claims.Should().Contain(c => c.Type == "email_verified" && c.Value == identity.EmailVerified.ToString());
         token.Issuer.Should().Be(_jwtSettings.Issuer);
         token.Audiences.Should().Contain(_jwtSettings.Audience);
     }

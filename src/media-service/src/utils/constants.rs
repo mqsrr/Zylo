@@ -3,6 +3,10 @@ pub const REDIS_URL_SECRET: &str = "Media-Redis--ConnectionString";
 pub const REDIS_EXPIRE: &str = "Zylo-Redis--Expire";
 pub const RABBITMQ_URL_SECRET: &str = "Zylo-RabbitMq--ConnectionString";
 
+pub const EXPOSED_PORT: &str = "Media-API--ExposedPort";
+
+
+
 pub const USER_GRPC_SERVER: &str = "UserManagement-Grpc--ServerAddress";
 
 pub const S3_BUCKET_NAME: &str = "Zylo-S3--BucketName";

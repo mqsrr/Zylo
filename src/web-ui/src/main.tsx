@@ -4,15 +4,18 @@ import App from "./App.tsx";
 import {AuthProvider} from "@/contexts/AuthContext.tsx";
 import {UserProvider} from "@/contexts/UserContext.tsx";
 import {PostsProvider} from "@/contexts/PostContext.tsx";
+import {NotificationsProvider} from "@/contexts/NotificationContext.tsx";
 
 createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
         <AuthProvider>
-            <UserProvider>
-                <PostsProvider>
-                    <App/>
-                </PostsProvider>
-            </UserProvider>
+                <UserProvider>
+                    <NotificationsProvider>
+                        <PostsProvider>
+                            <App/>
+                        </PostsProvider>
+                    </NotificationsProvider>
+                </UserProvider>
         </AuthProvider>
     </BrowserRouter>
 )

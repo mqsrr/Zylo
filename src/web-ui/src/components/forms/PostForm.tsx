@@ -52,7 +52,12 @@ const PostForm: React.FC<PostFormProps> = ({ post, isEditing = false }) => {
 
             if (isEditing && post) {
                 const updatedPost = await PostService.updatePost(userId!, post.id, formData, accessToken!.value);
+                if (!updatedPost) {
+                    return;
+                }
+
                 updatePostInFeed(updatedPost);
+
             } else {
                 await PostService.createPost(userId!, formData, accessToken!.value);
             }

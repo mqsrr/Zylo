@@ -1,18 +1,38 @@
+# syntax=docker/dockerfile:1
+
+# Use an argument for the Rust version for flexibility
 ARG RUST_VERSION=1.82.0-bullseye
-ARG APP_NAME=user-interaction
 
+# Build stage
 FROM rust:${RUST_VERSION} AS builder
-ARG APP_NAME
 
-WORKDIR /usr/src/${APP_NAME}
+# Install required build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*
 
+# Set the working directory
+WORKDIR /usr/src/user-interaction
+
+# Copy the source code
 COPY . .
-RUN cargo install --path .
 
+# Install dependencies and build the application
+RUN cargo build --release
+
+# Production stage
 FROM debian:bullseye-slim
-ARG APP_NAME
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local/cargo/bin/${APP_NAME} /usr/local/bin/${APP_NAME}
 
+# Install required runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/user-interaction/target/release/user-interaction /usr/local/bin/user-interaction
+
+# Expose the application port
 EXPOSE 8080
-CMD ["${APP_NAME}"]
+
+# Command to run the application
+CMD ["user-interaction"]

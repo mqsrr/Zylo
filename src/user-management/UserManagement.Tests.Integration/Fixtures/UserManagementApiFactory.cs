@@ -16,6 +16,7 @@ using NSubstitute;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
+using UserManagement.Application.Services.Abstractions;
 using UserManagement.Application.Settings;
 using UserManagement.Controllers;
 
@@ -71,6 +72,9 @@ public sealed class UserManagementApiFactory : WebApplicationFactory<UsersContro
         
         builder.UseSetting("S3:BucketName", "user-management-test-bucket");
         builder.UseSetting("S3:PresignedUrlExpire", "600");
+        
+        builder.UseSetting("Encryption:Key", "VmVyeVNlY3JldEtleVRoYXRTaG91bGROb3RCZVN0b3JlZEluVGhlQXBw");
+        builder.UseSetting("Otp:Characters", "QWERTYUIOPASDFGHJKLZXCVBNM1234567890");
 
         builder.UseSetting("Redis:ConnectionString", _redisContainer.GetConnectionString());
         builder.UseSetting("RabbitMq:ConnectionString", _rabbitMqContainer.GetConnectionString());
@@ -114,7 +118,7 @@ public sealed class UserManagementApiFactory : WebApplicationFactory<UsersContro
         var jwtSecurityToken = new JwtSecurityToken(
             jwtSettings.Issuer,
             jwtSettings.Audience,
-            [new Claim(ClaimTypes.System, "testing")],
+            [new Claim(ClaimTypes.System, "testing"), new Claim("email_verified", "true")],
             DateTime.UtcNow,
             DateTime.UtcNow.AddMinutes(jwtSettings.Expire),
             signingCred);

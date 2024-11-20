@@ -180,3 +180,4 @@ D:\Codes\Zylo\src\user-management\UserManagement.Tests.Unit\bin\Debug\net8.0\Grp
 D:\Codes\Zylo\src\user-management\UserManagement.Tests.Unit\bin\Debug\net8.0\Grpc.Core.Api.dll
 D:\Codes\Zylo\src\user-management\UserManagement.Tests.Unit\bin\Debug\net8.0\Grpc.HealthCheck.dll
 D:\Codes\Zylo\src\user-management\UserManagement.Tests.Unit\bin\Debug\net8.0\Grpc.Net.Common.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Tests.Unit\obj\Debug\net8.0\UserManagement.Tests.Unit.sourcelink.json

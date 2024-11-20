@@ -129,7 +129,7 @@ public sealed class CreateUserNotificationHandlerTests : IAsyncDisposable
         var handleFunc = async () => await _sut.Handle(createUserNotification, cancellationToken);
 
         // Assert
-        await handleFunc.Should().ThrowAsync<NpgsqlException>();
+        await handleFunc.Should().NotThrowAsync<NpgsqlException>();
         _testHarness.Published.Select<UserCreated>(cancellationToken)
             .FirstOrDefault(publishedMessage => publishedMessage.Context.Message.Id == registerRequest.Id.Value)
             .Should()

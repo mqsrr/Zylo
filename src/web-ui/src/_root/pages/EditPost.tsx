@@ -11,15 +11,13 @@ const EditPost = () => {
     const {feed} = usePostContext();
 
     const findPostById = useCallback((id: string): Post | null => {
-            const post = feed.find((post) => post.id === id);
-            if (!post) {
-                return null;
-            }
+        const post = feed.find((post) => post.id === id);
+        if (!post) {
+            return null;
+        }
 
-            return post
-        },
-        [feed]
-    );
+        return post
+    }, [feed]);
 
     useEffect(() => {
         if (!id) {

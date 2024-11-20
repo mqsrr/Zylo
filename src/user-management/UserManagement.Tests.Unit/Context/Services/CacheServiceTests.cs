@@ -77,7 +77,7 @@ public class CacheServiceTests
 
         // Assert
         await _database.Received().HashSetAsync(key, field, entityJson);
-        await _database.Received().HashFieldExpireAsync(key, Arg.Is<RedisValue[]>(array => array.Contains(field)), expiry);
+        await _database.Received().HashFieldExpireAsync(key, Arg.Is<RedisValue[]>(values => values.Contains(new RedisValue(field))), expiry);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class CacheServiceTests
         // Assert
         result.Should().BeEquivalentTo(newEntity);
         await _database.Received().HashSetAsync(key, field, newEntityJson);
-        await _database.Received().HashFieldExpireAsync(key, Arg.Is<RedisValue[]>(array => array.Contains(field)), expiry);
+        await _database.Received().HashFieldExpireAsync(key, Arg.Is<RedisValue[]>(values => values.Contains(new RedisValue(field))), expiry);
     }
     
     [Fact]
@@ -152,7 +152,7 @@ public class CacheServiceTests
         // Assert
         result.Should().BeNull();
         await _database.DidNotReceiveWithAnyArgs().HashSetAsync(default, default!);
-        await _database.DidNotReceiveWithAnyArgs().HashFieldExpireAsync(default, Arg.Is<RedisValue[]>(array => array.Contains(field)), expiry);
+        await _database.DidNotReceiveWithAnyArgs().HashFieldExpireAsync(default, Arg.Is<RedisValue[]>(values => values.Contains(new RedisValue(field))), expiry);
     }
 
     private class TestEntity
