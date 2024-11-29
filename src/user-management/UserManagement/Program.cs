@@ -24,6 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
 
+builder.Configuration.AddEnvFile();
 builder.Configuration.AddAzureKeyVault();
 builder.Configuration.AddJwtBearer(builder);
 
@@ -111,7 +112,6 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(8070, listenOptions =>
     {
         listenOptions.Protocols = HttpProtocols.Http2;
-        listenOptions.UseHttps();
     });
 
     options.ListenAnyIP(8080, listenOptions =>

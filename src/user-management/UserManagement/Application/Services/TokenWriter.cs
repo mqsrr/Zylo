@@ -39,7 +39,9 @@ internal sealed class  TokenWriter : ITokenWriter
     {
         var symmetricKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret));
         var signingCred = new SigningCredentials(symmetricKey, SecurityAlgorithms.HmacSha256);
-        var currentTime = _timeProvider.GetUtcNow().DateTime;
+        
+        var currentTime = DateTime.SpecifyKind(_timeProvider.GetUtcNow().DateTime, DateTimeKind.Utc);
+        var expiresAt = DateTime.SpecifyKind(currentTime.AddSeconds(_jwtSettings.Expire), DateTimeKind.Utc);
         
         var jwtSecurityToken = new JwtSecurityToken(
             _jwtSettings.Issuer,
@@ -49,13 +51,13 @@ internal sealed class  TokenWriter : ITokenWriter
                 new Claim("email_verified", identity.EmailVerified.ToString())
             ],
             currentTime,
-            currentTime.AddMinutes(_jwtSettings.Expire),
+            expiresAt ,
             signingCred);
 
         return new AccessToken
         {
             Value = new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken),
-            ExpirationDate = jwtSecurityToken.ValidTo
+            ExpirationDate = expiresAt
         };
     }
     

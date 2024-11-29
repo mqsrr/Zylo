@@ -18,4 +18,9 @@ internal static partial class UserMapper
     {
         return id.Value;
     }
+
+    private static FileMetadataResponse MapFileMetadataToResponse(FileMetadata fileMetadata)
+    {
+        return fileMetadata.ToResponse();
+    }
 }

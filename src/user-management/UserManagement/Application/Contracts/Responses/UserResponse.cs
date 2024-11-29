@@ -1,14 +1,12 @@
-﻿using UserManagement.Application.Models;
-
-namespace UserManagement.Application.Contracts.Responses;
+﻿namespace UserManagement.Application.Contracts.Responses;
 
 internal sealed class UserResponse
 {
     public required Ulid Id { get; init; }
 
-    public required FileMetadata ProfileImage { get; init; }
+    public required FileMetadataResponse ProfileImage { get; init; }
 
-    public required FileMetadata BackgroundImage { get; init; }
+    public required FileMetadataResponse BackgroundImage { get; init; }
 
     public required string Name { get; init; }
     
@@ -21,3 +19,4 @@ internal sealed class UserResponse
     public required DateOnly BirthDate { get; init; }
 
 }
+
