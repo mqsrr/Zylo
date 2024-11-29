@@ -9,6 +9,10 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/mq"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
 	"github.com/rs/zerolog/log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -49,16 +53,35 @@ func main() {
 		log.Fatal().Err(err).Msg("")
 		return
 	}
-	defer grpcClient.CloseConnection()
-
+	
 	srv := api.NewServer(cfg, db, r, c, grpcClient)
 	log.Info().Msgf("Listening on %s", cfg.ListeningAddress)
 
 	if err = srv.MountHandlers(); err != nil {
-		log.Fatal().Err(err).Msg("")
+		log.Fatal().Err(err).Msg("Failed to mount handlers")
 	}
 
+	serverCtx, serverStopCtx := context.WithCancel(context.Background())
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		<-sig
+		log.Info().Msg("Shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Fatal().Err(err).Msg("Error during shutdown")
+		}
+		serverStopCtx()
+	}()
+
 	if err = srv.ListenAndServe(); err != nil {
-		log.Fatal().Err(err).Msg("")
+		log.Fatal().Err(err).Msg("Server error")
 	}
+
+	<-serverCtx.Done()
+	log.Info().Msg("Server stopped")
 }

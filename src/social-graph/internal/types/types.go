@@ -6,13 +6,13 @@ import (
 )
 
 type User struct {
-	ID           ulid.ULID     `json:"id"`
-	Username     string        `json:"username"`
-	ProfileImage *FileMetadata `json:"profileImage"`
-	Name         string        `json:"name"`
-	Bio          string        `json:"bio"`
-	Location     string        `json:"location"`
-	CreatedAt    string        `json:"createdAt"`
+	ID           ulid.ULID             `json:"id"`
+	Username     string                `json:"username"`
+	ProfileImage *FileMetadataResponse `json:"profileImage"`
+	Name         string                `json:"name"`
+	Bio          string                `json:"bio"`
+	Location     string                `json:"location"`
+	CreatedAt    string                `json:"createdAt"`
 }
 type UserWithRelationships struct {
 	User                   *User
@@ -28,6 +28,12 @@ type FileMetadata struct {
 	AccessUrl   *PresignedUrl `json:"accessUrl"`
 	FileName    string        `json:"fileName"`
 	ContentType string        `json:"contentType"`
+}
+
+type FileMetadataResponse struct {
+	Url         string `json:"url"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
 }
 
 type PresignedUrl struct {

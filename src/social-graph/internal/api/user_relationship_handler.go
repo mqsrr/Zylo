@@ -38,7 +38,11 @@ func (s *Server) mapUserProfileImageUrls(ctx context.Context, user *types.User) 
 	cacheKey := fmt.Sprintf("images:profile:%s", user.ID)
 
 	if ok := s.getCached(ctx, cacheKey, fileMetadata); ok {
-		user.ProfileImage = fileMetadata
+		user.ProfileImage = &types.FileMetadataResponse{
+			Url:         fileMetadata.AccessUrl.Url,
+			FileName:    fileMetadata.FileName,
+			ContentType: fileMetadata.ContentType,
+		}
 		return nil
 	}
 
@@ -48,7 +52,11 @@ func (s *Server) mapUserProfileImageUrls(ctx context.Context, user *types.User) 
 	}
 
 	s.setCache(ctx, cacheKey, fileMetadata, time.Until(fileMetadata.AccessUrl.ExpiresIn))
-	user.ProfileImage = fileMetadata
+	user.ProfileImage = &types.FileMetadataResponse{
+		Url:         fileMetadata.AccessUrl.Url,
+		FileName:    fileMetadata.FileName,
+		ContentType: fileMetadata.ContentType,
+	}
 	return nil
 }
 

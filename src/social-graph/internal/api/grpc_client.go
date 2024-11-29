@@ -6,9 +6,9 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/protos/github.com/mqsrr/zylo/social-graph/proto"
 	"github.com/mqsrr/zylo/social-graph/internal/types"
 	"github.com/oklog/ulid/v2"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"strings"
 	"time"
 )
 
@@ -40,13 +40,13 @@ func (s *UserProfileService) CloseConnection() error {
 }
 
 func NewProfileService(cfg *config.GrpcClientConfig) (ProfileService, error) {
-	conn, err := grpc.NewClient("localhost:8070", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	grpcServer, _ := strings.CutPrefix(cfg.ServerAddr, "http://")
+	conn, err := grpc.NewClient(grpcServer, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
 
 	client := proto.NewUserProfileServiceClient(conn)
-	log.Info().Msg("Grpc client successfully connected")
 	return &UserProfileService{
 		grpcClient: client,
 		grpcConn:   conn,

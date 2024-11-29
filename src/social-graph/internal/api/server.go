@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/jwtauth/v5"
@@ -23,6 +25,7 @@ type Server struct {
 	cache                storage.CacheStorage
 	profileServiceClient ProfileService
 	consumer             mq.Consumer
+	httpServer           *http.Server
 }
 
 func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
@@ -36,13 +39,20 @@ func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
 }
 
 func NewServer(config *config.Config, storage storage.RelationshipStorage, cache storage.CacheStorage, consumer mq.Consumer, profileServiceClient ProfileService) *Server {
-	return &Server{
+	srv := &Server{
 		cfg:                  config,
 		storage:              storage,
 		cache:                cache,
 		consumer:             consumer,
 		profileServiceClient: profileServiceClient,
 	}
+
+	srv.httpServer = &http.Server{
+		Addr:    config.ListeningAddress,
+		Handler: srv,
+	}
+
+	return srv
 }
 
 func setupJWT(config *config.JwtConfig) {
@@ -109,6 +119,27 @@ func (s *Server) MountHandlers() error {
 }
 
 func (s *Server) ListenAndServe() error {
-	err := http.ListenAndServe(s.cfg.ListeningAddress, s)
-	return err
+	go func() {
+		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			panic(err)
+		}
+	}()
+
+	return nil
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	if err := s.consumer.Shutdown(); err != nil {
+		return err
+	}
+
+	if err := s.profileServiceClient.CloseConnection(); err != nil {
+		return err
+	}
+
+	return nil
 }
