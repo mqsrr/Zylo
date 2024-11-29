@@ -1,36 +1,35 @@
-﻿import {useCallback, useEffect, useState} from "react";
+﻿import {useEffect, useState} from "react";
 import PostForm from "@/components/forms/PostForm.tsx";
 import {useParams} from "react-router-dom";
 import {Post} from "@/models/Post.ts";
-import {usePostContext} from "@/hooks/usePostContext.ts";
 import {EditIcon} from "lucide-react";
+import PostService from "@/services/PostService.ts";
+import {useUserContext} from "@/hooks/useTokenContext.ts";
+import {useAuthContext} from "@/hooks/useAuthContext.ts";
 
 const EditPost = () => {
     const {id} = useParams<{ id: string }>();
     const [post, setPost] = useState<Post | null>(null);
-    const {feed} = usePostContext();
+    const {user} = useUserContext();
+    const {accessToken} = useAuthContext();
 
-    const findPostById = useCallback((id: string): Post | null => {
-        const post = feed.find((post) => post.id === id);
-        if (!post) {
-            return null;
-        }
-
-        return post
-    }, [feed]);
 
     useEffect(() => {
-        if (!id) {
+        if (!id || !user || !accessToken) {
             return;
         }
 
-        const post = findPostById(id);
-        if (!post) {
-            console.error('Could not find reply!');
-            return;
+        const initializePost = async (): Promise<void> => {
+            const post = await PostService.getPost(id, user.id, accessToken.value);
+            if (!post) {
+                return;
+            }
+
+            setPost(post);
         }
-        setPost(post);
-    }, [id, findPostById]);
+
+        initializePost().catch(console.error)
+    }, [id, user, accessToken]);
 
     if (!post) {
         return <div>Loading...</div>;

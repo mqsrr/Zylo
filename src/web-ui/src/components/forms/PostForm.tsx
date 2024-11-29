@@ -19,6 +19,7 @@ import { usePostContext } from "@/hooks/usePostContext";
 import PostService from "@/services/PostService.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import React from "react";
+import {useUserContext} from "@/hooks/useTokenContext.ts";
 
 interface PostFormProps {
     post?: Post;
@@ -27,6 +28,7 @@ interface PostFormProps {
 
 const PostForm: React.FC<PostFormProps> = ({ post, isEditing = false }) => {
     const { updatePostInFeed } = usePostContext();
+    const {user} = useUserContext();
     const {accessToken, userId} = useAuthContext();
     const navigate = useNavigate();
 
@@ -57,9 +59,22 @@ const PostForm: React.FC<PostFormProps> = ({ post, isEditing = false }) => {
                 }
 
                 updatePostInFeed(updatedPost);
+                user!.posts.data.map((post) => {
+                    if (post.id === updatedPost.id){
+                        return updatedPost;
+                    }
+
+                    return post;
+                })
 
             } else {
-                await PostService.createPost(userId!, formData, accessToken!.value);
+                const createdPost = await PostService.createPost(userId!, formData, accessToken!.value);
+                if (!createdPost){
+                    console.error("Failed to create post");
+                    return;
+                }
+
+                user!.posts.data.push(createdPost);
             }
 
             navigate("/");

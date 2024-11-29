@@ -6,6 +6,7 @@ import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import {Reply} from "@/models/Reply.ts";
 import {Button} from "@/components/ui/button.tsx";
 import {Input} from "@/components/ui/input.tsx";
+import {usePostContext} from "@/hooks/usePostContext.ts";
 
 type PostInteractionsProps = {
     post: Post | Reply;
@@ -15,7 +16,7 @@ type PostInteractionsProps = {
 
 const PostInteractions = ({post, isTopLevel = true, onReplySubmit}: PostInteractionsProps) => {
     const {userId, accessToken} = useAuthContext();
-
+    const {getPostById, addOrUpdatePost} = usePostContext()
     const [likes, setLikes] = useState(post.likes);
     const [isLiked, setIsLiked] = useState(post.userInteracted);
     const [views] = useState(post.views);
@@ -37,6 +38,26 @@ const PostInteractions = ({post, isTopLevel = true, onReplySubmit}: PostInteract
             setLikes(isLiked ? likes - 1 : likes + 1);
             setIsLiked(!isLiked);
         }
+
+        const updatedPost: Reply | Post = {
+            ...post,
+            likes: likes,
+            userInteracted: !post.userInteracted,
+        };
+        if ("replyToId" in post) {
+            const parentPost = getPostById(post.replyToId);
+            if (parentPost) {
+                const updatedReplies = parentPost.replies!.map((reply) =>
+                    reply.id === post.id ? {...reply, ...updatedPost as Reply} : reply
+                );
+
+
+                addOrUpdatePost({...parentPost, replies: updatedReplies});
+                return;
+            }
+        }
+
+        addOrUpdatePost(updatedPost as Post);
     };
 
     const toggleReplyInput = (e: React.MouseEvent) => {

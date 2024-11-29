@@ -8,31 +8,41 @@ import {TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs.tsx";
 import {Card, CardContent} from "@/components/ui/card.tsx";
 import {Button} from "@/components/ui/button.tsx";
 import SocialConnectionsService from "@/services/SocialConnectionsService.ts";
+import {useUserContext} from "@/hooks/useTokenContext.ts";
 
 const SocialConnections = () => {
     const { id } = useParams<{ id: string; }>();
     const [user, setUser] = useState<User | null>(null);
-    const { userId, accessToken } = useAuthContext();
+    const { accessToken } = useAuthContext();
+    const { user: currentUser } = useUserContext();
 
     useEffect(() => {
         const fetchUser = async () => {
-            if (id && accessToken) {
-                try {
-                    const fetchedUser = await UserService.getUser(id, accessToken.value, null);
-                    setUser(fetchedUser);
-                } catch (e) {
-                    console.error("Failed to fetch user", e);
-                }
+
+            if (!id || !accessToken || !currentUser) {
+                return;
             }
+
+            let user = currentUser;
+            if (id !== currentUser.id) {
+                const fetchedUser = await UserService.getUser(id, accessToken.value, null);
+                if (!fetchedUser){
+                    return;
+                }
+
+                user = fetchedUser;
+            }
+            setUser(user);
+
         };
         fetchUser();
-    }, [id, accessToken]);
+    }, [id, accessToken, currentUser]);
 
     if (!user) {
         return <div>Loading...</div>;
     }
 
-    const isCurrentUser = userId === user.id;
+    const isCurrentUser = currentUser?.id === user.id;
     const { relationships } = user;
 
     const tabs = [
@@ -139,7 +149,7 @@ const UserCard = ({ userSummary, relationshipType, isCurrentUser }: UserCardProp
 
         switch (relationshipType) {
             case "followers":
-                return (
+                return(
                     <Button
                         onClick={handleAction}
                         variant="secondary">

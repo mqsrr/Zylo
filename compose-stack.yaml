@@ -1,0 +1,148 @@
+services:
+  user-management-postgres:
+    image: postgres:16.0
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: testUser
+      POSTGRES_PASSWORD: Test1234!
+      POSTGRES_DB: testDb
+
+  rabbitMq:
+    image: rabbitmq:management-alpine
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  media-service-mongo:
+    image: mongo
+    ports:
+      - "27017:27017"
+
+  user-interaction-postgres:
+    image: postgres:16.0
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: testUser
+      POSTGRES_PASSWORD: Pass1234!
+      POSTGRES_DB: testDb
+
+  user-interaction-backup-redis:
+    image: redis
+    ports:
+      - "6378:6379"
+
+  social-graph-neo4j:
+    image: neo4j:5.23
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/goblin-sigma-farmer-define-visible-8374
+
+  feed-service-neo4j:
+    image: neo4j:5.23
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/info-susan-shirt-sultan-random-5993
+
+  user-management:
+    image: mqsr/zylo/user-management:1.0.0
+    depends_on:
+      - user-management-postgres
+      - rabbitMq
+      - redis
+    ports:
+      - '8080:8080'
+      - '8070:8070'
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+    env_file:
+      - .env
+
+  media-service:
+    image: mqsr/zylo/media-service:1.0.0
+    depends_on:
+      - media-service-mongo
+      - rabbitMq
+      - redis
+    ports:
+      - '8082:8080'
+    env_file:
+      - .env
+
+  user-interaction:
+    image: mqsr/zylo/user-interaction:1.0.0
+    depends_on:
+      - user-interaction-postgres
+      - user-interaction-backup-redis
+      - rabbitMq
+      - redis
+    ports:
+      - '8083:8080'
+    env_file:
+      - .env
+
+  social-graph:
+    image: mqsr/zylo/social-graph:1.0.0
+    depends_on:
+      - social-graph-neo4j
+      - rabbitMq
+      - redis
+    ports:
+      - '8081:8080'
+    environment:
+      LISTENING_ADDRESS: :8080
+      ENVIRONMENT: Production
+    env_file:
+      - .env
+
+  feed-service:
+    image: mqsr/zylo/feed-service:1.0.0
+    depends_on:
+      - feed-service-neo4j
+      - rabbitMq
+      - redis
+    ports:
+      - '8091:8080'
+    environment:
+      LISTENING_ADDRESS: :8080
+      ENVIRONMENT: Production
+    env_file:
+      - .env
+
+  notification-service:
+    image: mqsr/zylo/notification-service:1.0.0
+    depends_on:
+      - rabbitMq
+      - redis
+    ports:
+      - '8095:8080'
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+    env_file:
+      - .env
+
+  api-gateway:
+    image: mqsr/zylo/api-gateway:1.0.0
+#    depends_on:
+#      - user-management
+#      - user-interaction
+#      - social-graph
+#      - feed-service
+#      - media-service
+#      - notification-service
+    ports:
+      - '8090:8080'
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+    env_file:
+      - .env

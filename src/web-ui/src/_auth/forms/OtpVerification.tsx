@@ -3,13 +3,13 @@ import {useCallback, useEffect, useState} from "react";
 import {REGEXP_ONLY_DIGITS_AND_CHARS} from "input-otp";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import AuthService from "@/services/AuthService.ts";
-import {useNavigate, useParams} from "react-router-dom";
+import {useNavigate} from "react-router-dom";
+import {toast} from "@/hooks/use-toast.ts";
 
 const OtpVerification = () => {
     const [value, setValue] = useState("")
     const [isLoading, setIsLoading] = useState(false);
     const {userId} = useAuthContext()
-    const {username, password} = useParams<{username:string, password: string}>();
     const navigate = useNavigate();
 
 
@@ -20,19 +20,20 @@ const OtpVerification = () => {
 
         setIsLoading(true);
         const codeMatched = await AuthService.verifyEmail(userId, otpCode);
-        if (!codeMatched || !username || !password){
-            return;
-        }
-
-        const result = await AuthService.signIn(username, password);
-        if (!result){
+        if (!codeMatched){
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: `Incorrect verification code.`,
+            });
+            setValue("")
             return;
         }
 
         setIsLoading(false);
-        navigate("/")
+        navigate("/sign-in")
 
-    }, [userId, username, password, navigate])
+    }, [userId, navigate])
 
     useEffect(() => {
         if (value.length !== 6) {

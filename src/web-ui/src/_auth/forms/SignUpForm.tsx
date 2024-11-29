@@ -90,7 +90,7 @@ const SignUpForm = () => {
         }
 
         form.reset();
-        navigate(`/verify-email?username=${values.username}&password=${values.password}`);
+        navigate("/verify-email");
     };
 
     return (

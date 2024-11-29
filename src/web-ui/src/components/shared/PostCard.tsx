@@ -1,5 +1,4 @@
-﻿import {Post} from "@/models/Post.ts";
-import {Link, useNavigate} from "react-router-dom";
+﻿import {Link, useNavigate} from "react-router-dom";
 import {
     Carousel,
     CarouselContent,
@@ -8,38 +7,48 @@ import {
 import PostInteractions from "./PostInteractions";
 import {Card, CardContent} from "@/components/ui/card.tsx";
 import Replies from "./Replies";
-import {useUserContext} from "@/hooks/useTokenContext.ts";
 import {EditIcon} from "lucide-react";
-import React, {useState} from "react";
+import React, {useCallback, useState} from "react";
 import {formatDistanceToNow} from "date-fns";
 import {Reply} from "@/models/Reply.ts";
 import {usePostContext} from "@/hooks/usePostContext.ts";
+import {useAuthContext} from "@/hooks/useAuthContext.ts";
+import {Post} from "@/models/Post.ts";
 
 type PostCardProps = {
-    post: Post;
+    postId: string;
 };
 
-const PostCard = ({post}: PostCardProps) => {
-    const {user} = useUserContext();
-    const {updatePostInFeed} = usePostContext();
-    const [replies, setReplies] = useState<Reply[]>(post.replies || []);
-    const relativeDate = formatDistanceToNow(new Date(post.createdAt), {
-        addSuffix: true,
-    });
-    const navigate = useNavigate();
+const PostCard = ({postId}: PostCardProps) => {
+    const {userId} = useAuthContext();
+    const {getPostById, addOrUpdatePost} = usePostContext();
+    const [post, ] = useState<Post | null>(getPostById(postId));
 
+    const replies = post?.replies || [];
+
+    const handleReplySubmit = useCallback((newReply: Reply) => {
+        const updatedPost = {
+            ...post,
+            replies: [newReply, ...(post?.replies || [])],
+        };
+
+        addOrUpdatePost(updatedPost as Post);
+    }, [replies, post, addOrUpdatePost, replies]);
+
+
+    const navigate = useNavigate();
+    if (!post) {
+        return <></>;
+    }
     const onEditClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         navigate(`/edit/posts/${post.id}`);
     };
 
-    const handleReplySubmit = (newReply: Reply) => {
-        setReplies([newReply, ...replies]);
 
-        post.replies?.push(newReply);
-        updatePostInFeed(post);
-    };
-
+    const relativeDate = formatDistanceToNow(new Date(post.createdAt), {
+        addSuffix: true,
+    });
     return (
         <Card className="shadow-md rounded-lg overflow-hidden mb-6">
             <CardContent>
@@ -56,7 +65,7 @@ const PostCard = ({post}: PostCardProps) => {
                         <p className="font-semibold text-lg">{post.user.name}</p>
                         <p className="text-sm text-gray-500">{relativeDate}</p>
                     </div>
-                    {post.user.id === user?.id && (
+                    {post.user.id === userId && (
                         <EditIcon
                             className="ml-auto mr-0 cursor-pointer"
                             size={20}
@@ -64,9 +73,10 @@ const PostCard = ({post}: PostCardProps) => {
                         />
                     )}
                 </div>
-                <p className="mb-4">{post.text}</p>
-                {post.filesMetadata && post.filesMetadata.length > 0 && (
-                    <Link to={`/posts/${post.id}`}>
+                <Link to={`/posts/${post.id}`}>
+
+                    <p className="mb-4">{post.text}</p>
+                    {post.filesMetadata && post.filesMetadata.length > 0 && (
                         <Carousel className="w-full mb-4">
                             <CarouselContent>
                                 {post.filesMetadata.map((file) => (
@@ -80,8 +90,8 @@ const PostCard = ({post}: PostCardProps) => {
                                 ))}
                             </CarouselContent>
                         </Carousel>
-                    </Link>
-                )}
+                    )}
+                </Link>
 
                 <PostInteractions
                     post={post}

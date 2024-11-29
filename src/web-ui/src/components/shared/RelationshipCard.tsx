@@ -1,9 +1,9 @@
 ﻿import { Link } from "react-router-dom";
-import {UserSummary} from "@/models/UserRelationship.ts";
 import UserService from "@/services/UserService.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import {useCallback, useEffect} from "react";
 import {Card, CardContent} from "@/components/ui/card.tsx";
+import {UserSummary} from "@/models/User.ts";
 
 type RelationshipCardProps = {
     title: string;
@@ -20,7 +20,7 @@ const RelationshipCard = ({ title, users }: RelationshipCardProps) => {
 
         for (const user of users) {
             const userData = await UserService.getUser(user.id, accessToken!.value, null)
-            user.profileImageUri = userData!.profileImage.url
+            user.profileImage.url = userData!.profileImage.url
         }
     }, [accessToken]);
     
@@ -39,8 +39,8 @@ const RelationshipCard = ({ title, users }: RelationshipCardProps) => {
                             <div key={user.id} className="flex items-center space-x-4">
                                 <Link to={`/profile/${user.id}`} className="flex items-center">
                                     <img
-                                        src={user.profileImageUri!}
-                                        alt={user.profileImageUri!}
+                                        src={user.profileImage.url!}
+                                        alt={user.profileImage.url!}
                                         className="w-12 h-12 rounded-full object-cover"
                                     />
                                     <span className="ml-2 text-gray-200 hover:underline">

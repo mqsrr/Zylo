@@ -8,7 +8,7 @@ interface AuthContextType {
     userId?: string;
     refreshAccessToken: () => Promise<AccessToken | null>;
     signUp (request: FormData): Promise<AuthenticationResult | null>;
-    signIn (email: string, password: string): Promise<AuthenticationResult | null>;
+    signIn (username: string, password: string): Promise<AuthenticationResult | null>;
     logout: () => void;
 }
 

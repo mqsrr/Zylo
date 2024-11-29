@@ -30,22 +30,21 @@ export const GetBlockedUsersUri = (id: string): string => `${BaseAPIUri}/users/$
 export const BlockUserUri = (id: string, userToBlockId: string): string => `${BaseAPIUri}/users/${id}/blocks/${userToBlockId}`
 export const UnblockUserUri = (id: string, blockedUserId: string): string => `${BaseAPIUri}/users/${id}/blocks/${blockedUserId}`
 
-export const GetUsersFeed = (userId: string,next?: string, perPage?: string): string =>
-    next && perPage ?
-        `${BaseAPIUri}/users/${userId}/feed?pageSize=${perPage}&next=${next}`
+export const GetUsersFeed = (userId: string, next?: string | null, perPage?: string | null): string =>
+    next ?
+        `${BaseAPIUri}/users/${userId}/feed?pageSize=${perPage ?? 10}&next=${next}`
         : `${BaseAPIUri}/users/${userId}/feed`
 
-export const GetRecentPostsUri = (next?: string, perPage?: string): string =>
-    next && perPage ?
-        `${BaseAPIUri}/posts?per_page=${perPage}&next=${next}`
-        : `${BaseAPIUri}/posts`
+export const GetUsersPostsUri = (userId: string, next?: string | null, perPage?: string | null): string =>
+    next ?
+        `${BaseAPIUri}/users/${userId}/posts?per_page=${perPage ?? 10}&next=${next}`
+        : `${BaseAPIUri}/users/${userId}/posts`
 
-export const GetUsersPostsUri = (userId: string): string => `${BaseAPIUri}/users/${userId}/posts`
 export const GetPostUri = (id: string, userId: string): string => `${BaseAPIUri}/posts/${id}?userId=${userId}`
-export const DownloadPostMediaUri = (postId: string, mediaId: string): string => `${BaseAPIUri}/posts/${postId}/media/${mediaId}`
+export const GetReplyUri = (id: string, postId: string, userId: string): string => `${BaseAPIUri}/posts/${postId}/replies/${id}?userId=${userId}`
 export const CreatePostUri = (userId: string): string => `${BaseAPIUri}/users/${userId}/posts`
 export const UpdatePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`
-export const DeletePostUri = (userId:string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`
+export const DeletePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`
 
 //Post Interactions
 export const LikePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/likes/posts/${postId}`

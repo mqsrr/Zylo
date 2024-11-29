@@ -1,106 +1,82 @@
 ﻿import {Link, useParams} from "react-router-dom";
-import {useCallback, useEffect, useState} from "react";
+import React, {useEffect, useState} from "react";
 import {Reply} from "@/models/Reply.ts";
-import {usePostContext} from "@/hooks/usePostContext.ts";
 import {Card, CardContent, CardHeader} from "../../components/ui/card.tsx";
 import ReplyItem from "@/components/shared/ReplyItem.tsx";
 import {formatDistanceToNow} from "date-fns";
 import PostInteractions from "@/components/shared/PostInteractions.tsx";
 import PostService from "@/services/PostService.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
+import {Button} from "@/components/ui/button.tsx";
+import {Input} from "@/components/ui/input.tsx";
 
 const ReplyDetail = () => {
-    const {postId, replyId} = useParams<{ postId: string; replyId: string }>();
-    const {feed} = usePostContext();
-    const {userId, accessToken} = useAuthContext();
-    const [reply, setReply] = useState<Reply | null>(null);
+        const {postId, replyId} = useParams<{ postId: string; replyId: string }>();
+        const {userId, accessToken} = useAuthContext();
+        const [reply, setReply] = useState<Reply | null>(null);
 
-    const findReplyInFeed = useCallback((postId: string, replyId: string): Reply | null => {
-            const post = feed.find((post) => post.id === postId);
-            if (!post) {
-                return null;
-            }
-
-            const findReplyRecursively = (replies: Reply[] | null, replyId: string): Reply | null => {
-                if (!replies) {
-                    return null;
-                }
-
-                for (const reply of replies) {
-                    if (reply.id === replyId) {
-                        return reply;
-                    }
-
-                    const found = findReplyRecursively(reply.nestedReplies, replyId);
-                    if (found) {
-                        return found;
-                    }
-                }
-                return null;
-            };
-
-            return findReplyRecursively(post.replies, replyId);
-        },
-        [feed]
-    );
-
-    useEffect(() => {
-        if (!replyId || !postId || !userId || !accessToken) return;
-
-        const initializeReply = async () => {
-            const foundReply = findReplyInFeed(postId, replyId);
-            if (!foundReply) {
-                console.error("Could not find reply!");
+        useEffect(() => {
+            if (!replyId || !postId || !userId || !accessToken) {
                 return;
             }
 
+            const initializeReply = async () => {
+                const reply =await PostService.getReply(replyId, postId, userId, accessToken.value);
+                if (!reply) {
+                    console.error("Could not find reply!");
+                    return;
+                }
 
-            const isUpdated = await PostService.viewPost(userId, replyId, accessToken.value);
-            if (!isUpdated) {
-                return;
+                setReply(reply)
+
+                const isUpdated = await PostService.viewPost(userId, replyId, accessToken.value);
+                if (!isUpdated) {
+                    return;
+                }
+                console.log(reply)
+                setReply({...reply, views: reply.views + 1});
             }
-            setReply({...foundReply, views: foundReply.views + 1});
+
+
+            initializeReply().catch(console.error);
+        }, [replyId, postId, userId, accessToken]);
+
+
+        if (reply === null || postId === undefined) {
+            console.log(reply)
+            return <div>Loading</div>;
         }
 
+        return (
+            <div className="container mx-auto px-4 py-6 overflow-auto">
+                <Card className="mb-6">
+                    <CardHeader>
+                        <h2 className="text-xl font-semibold">Reply Details</h2>
+                    </CardHeader>
+                    <CardContent>
+                        <MainReplyCard reply={reply} setReply={setReply}/>
+                    </CardContent>
+                </Card>
 
-    initializeReply().catch(console.error);
-}, [replyId, postId, userId, accessToken, findReplyInFeed]);
-
-
-if (reply === null || postId === undefined) {
-    return <div>Loading</div>;
-}
-
-return (
-    <div className="container mx-auto px-4 py-6 overflow-auto">
-        <Card className="mb-6">
-            <CardHeader>
-                <h2 className="text-xl font-semibold">Reply Details</h2>
-            </CardHeader>
-            <CardContent>
-                <MainReplyCard reply={reply} setReply={setReply}/>
-            </CardContent>
-        </Card>
-
-        {reply.nestedReplies && reply.nestedReplies.length > 0 && (
-            <div>
-                {reply.nestedReplies.map((nestedReply) => (
-                    <Card key={nestedReply.id} className="mb-4">
-                        <CardContent className="mt-4">
-                            <ReplyItem
-                                reply={nestedReply}
-                                postId={postId}
-                                level={1}
-                                maxExpandLevel={3}
-                            />
-                        </CardContent>
-                    </Card>
-                ))}
+                {reply.nestedReplies && reply.nestedReplies.length > 0 && (
+                    <div>
+                        {reply.nestedReplies.map((nestedReply) => (
+                            <Card key={nestedReply.id} className="mb-4">
+                                <CardContent className="mt-4">
+                                    <ReplyItem
+                                        reply={nestedReply}
+                                        postId={postId}
+                                        level={1}
+                                        maxExpandLevel={3}
+                                    />
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                )}
             </div>
-        )}
-    </div>
-);
-}
+        );
+    }
 ;
 
 export default ReplyDetail;
@@ -177,12 +153,9 @@ const MainReplyCard = ({reply, setReply}: MainReplyCardProps) => {
                     <p className="text-sm text-gray-500">{relativeDate}</p>
                 </div>
                 {reply.user.id === userId && !isEditing && (
-                    <button
-                        onClick={handleEditClick}
-                        className="ml-auto text-blue-500 hover:underline text-sm"
-                    >
+                    <Button onClick={handleEditClick} className="ml-auto" size="icon" variant="link">
                         Edit
-                    </button>
+                    </Button>
                 )}
             </div>
 
@@ -190,24 +163,20 @@ const MainReplyCard = ({reply, setReply}: MainReplyCardProps) => {
                 <p className="mb-4">{reply.content}</p>
             ) : (
                 <div className="mt-2">
-          <textarea
+          <Input
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
               className="w-full p-2 border rounded-md"
           />
                     <div className="flex space-x-2 mt-2">
-                        <button
-                            onClick={handleEditSave}
-                            className="bg-blue-500 text-white px-4 py-2 rounded"
-                        >
+                        <Button
+                            onClick={handleEditSave} >
                             Save
-                        </button>
-                        <button
-                            onClick={handleEditCancel}
-                            className="bg-gray-500 text-white px-4 py-2 rounded"
-                        >
+                        </Button>
+                        <Button
+                            onClick={handleEditCancel} variant="secondary">
                             Cancel
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}

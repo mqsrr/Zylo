@@ -1,4 +1,4 @@
-﻿import {FileMetadata} from "@/models/FileMetadata.ts";
+﻿import {UserPost} from "@/models/Post.ts";
 
 export interface Reply {
     id: string;

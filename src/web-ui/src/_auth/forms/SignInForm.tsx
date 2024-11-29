@@ -40,7 +40,7 @@ const SignInForm = () => {
 
             form.reset();
             if (!authResult.emailVerified && authResult.success) {
-                navigate(`/verify-email?username=${values.username}&password=${values.password}`);
+                navigate("/verify-email");
                 return;
             }
 

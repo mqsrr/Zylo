@@ -1,8 +1,7 @@
 ﻿import {
     CreatePostUri, CreateReplyUri,
     DeletePostUri, DeleteReplyUri,
-    DownloadPostMediaUri,
-    GetPostUri, GetUsersFeed, LikePostUri, UnlikePostUri,
+    GetPostUri, GetReplyUri, GetUsersFeed, GetUsersPostsUri, LikePostUri, UnlikePostUri,
     UpdatePostUri, UpdateReplyContentUri, ViewPostUri
 } from "@/constants/requestsUri.ts";
 import {Post} from "@/models/Post.ts";
@@ -11,7 +10,7 @@ import {Reply} from "@/models/Reply.ts";
 
 class PostService {
 
-    getPost = async (id: string, userId:string, token: string): Promise<Post | null> => {
+    getPost = async (id: string, userId: string, token: string): Promise<Post | null> => {
         const response = await fetch(GetPostUri(id, userId), {
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -23,8 +22,32 @@ class PostService {
             : null;
     }
 
+    getReply = async (id: string, postId: string, userId: string, token: string): Promise<Reply | null> => {
+        const response = await fetch(GetReplyUri(id, postId, userId), {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
 
-    getUsersFeed = async (token: string, userId: string, next?: string, perPage?: string): Promise<PaginatedResponse<Post> | null> => {
+        return response.ok
+            ? await response.json()
+            : null;
+    }
+
+    getUsersPosts = async (userId: string, token: string, next?: string | null, perPage?: string | null): Promise<PaginatedResponse<Post> | null> => {
+        const response = await fetch(GetUsersPostsUri(userId, next, perPage), {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+
+        return response.ok
+            ? await response.json()
+            : null;
+    }
+
+
+    getUsersFeed = async (userId: string, token: string, next?: string | null, perPage?: string): Promise<PaginatedResponse<Post> | null> => {
         const response = await fetch(GetUsersFeed(userId, next, perPage), {
             headers: {
                 Authorization: `Bearer ${token}`,
@@ -83,21 +106,6 @@ class PostService {
         return response.status == 201;
     }
 
-    downloadMedia = async (postId: string, mediaId: string, token: string): Promise<Blob> => {
-        const response = await fetch(DownloadPostMediaUri(postId, mediaId), {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Error making request');
-        }
-
-        return await response.blob();
-    }
-
     updatePost = async (userId: string, postId: string, formData: FormData, token: string): Promise<Post | null> => {
         const response = await fetch(UpdatePostUri(userId, postId), {
             method: 'PUT',
@@ -123,7 +131,7 @@ class PostService {
         return response.ok
     }
 
-    createReply = async (userId: string, repliedPostId: string, content: string ,token: string): Promise<Reply | null> => {
+    createReply = async (userId: string, repliedPostId: string, content: string, token: string): Promise<Reply | null> => {
         const response = await fetch(CreateReplyUri(repliedPostId), {
             method: 'POST',
             headers: {
@@ -159,7 +167,7 @@ class PostService {
             : null;
     }
 
-    deleteReply = async (repliedPostId: string ,replyId: string, token: string): Promise<boolean> => {
+    deleteReply = async (repliedPostId: string, replyId: string, token: string): Promise<boolean> => {
         const response = await fetch(DeleteReplyUri(repliedPostId, replyId), {
             method: 'DELETE',
             headers: {

@@ -1,5 +1,5 @@
 ﻿import {Link, useParams} from "react-router-dom";
-import {useCallback, useEffect, useState} from "react";
+import {useEffect, useState} from "react";
 import {Post} from "@/models/Post.ts";
 import {Card, CardContent} from "@/components/ui/card.tsx";
 import ReplyItem from "@/components/shared/ReplyItem.tsx";
@@ -8,37 +8,13 @@ import PostInteractions from "@/components/shared/PostInteractions.tsx";
 import {formatDistanceToNow} from "date-fns";
 import PostService from "@/services/PostService.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
-import {usePostContext} from "@/hooks/usePostContext.ts";
 import {Reply} from "@/models/Reply.ts";
 
 const PostDetails = () => {
     const { id } = useParams<{ id: string }>();
     const { userId, accessToken } = useAuthContext();
-    const { feed } = usePostContext();
     const [post, setPost] = useState<Post | null>(null);
     const [replies, setReplies] = useState<Reply[]>([]);
-
-    const findPostById = useCallback(async (postId: string): Promise<void> => {
-            if (!accessToken || !userId) {
-                return;
-            }
-            const feedPost = feed.find((post) => post.id === postId);
-            if (feedPost) {
-                setPost(feedPost);
-                setReplies(feedPost.replies || []);
-                return;
-            }
-
-            const fetchedPost = await PostService.getPost(postId, userId, accessToken.value);
-            if (!fetchedPost) {
-                return;
-            }
-
-            setPost(fetchedPost);
-            setReplies(fetchedPost.replies || []);
-        },
-        [accessToken, userId, feed]
-    );
 
 
     useEffect(() => {
@@ -46,9 +22,15 @@ const PostDetails = () => {
             return;
         }
 
-        const initialize = async (): Promise<void> => {
-            findPostById(id).catch(console.error);
+        const initializePost = async (): Promise<void> => {
+            console.log("Fetching post data")
+            const post = await PostService.getPost(id, userId, accessToken.value);
+            if (!post) {
+                return;
+            }
 
+            setPost(post);
+            setReplies(post.replies || []);
 
             const isUpdated = await PostService.viewPost(userId, id, accessToken.value);
             if (!isUpdated) {
@@ -58,8 +40,8 @@ const PostDetails = () => {
             setPost(prevPost => prevPost ? {...prevPost, views: prevPost.views + 1} : prevPost)
         }
 
-        initialize().catch(console.error)
-    }, [id, findPostById, userId, accessToken]);
+        initializePost().catch(console.error)
+    }, [id, userId, accessToken]);
 
     const handleReplySubmit = (newReply: Reply) => {
         setReplies([newReply, ...replies]);
