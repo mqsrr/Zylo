@@ -23,6 +23,7 @@ type RecommendationService interface {
 	DeleteUser(ctx context.Context, userID string) error
 	DeletePost(ctx context.Context, postID string) error
 	GenerateRecommendedPostIDs(ctx context.Context, userID string, minLikes int, limit int, next *time.Time) ([]string, *time.Time, error)
+	Shutdown(ctx context.Context) error
 }
 
 type Neo4jStorage struct {
@@ -225,4 +226,8 @@ func (n *Neo4jStorage) GenerateRecommendedPostIDs(ctx context.Context, userID st
 	}
 
 	return postIDs, next, nil
+}
+
+func (n *Neo4jStorage) Shutdown(ctx context.Context) error {
+	return n.driver.Close(ctx)
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
-	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"
 	"os"
 	"strconv"
@@ -96,13 +95,9 @@ func getEnvValue(key string, fallback string) string {
 		os.Exit(1)
 	}
 
-	return fallback
+	return value
 }
 func Load() *Config {
-	if err := godotenv.Load(); err != nil {
-		log.Warn().Err(err).Msg("Error loading .config file, falling back to environment variables")
-	}
-
 	client, err := initKeyVaultClient()
 	if err != nil {
 		return nil

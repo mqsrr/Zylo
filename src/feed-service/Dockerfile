@@ -14,10 +14,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -v -o /usr/local/bin/${APP_NAME_ARG} ./cmd
 
 FROM debian:bullseye-slim
 ARG APP_NAME_ARG
-ENV APP_NAME=${APP_NAME_ARG}
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/bin/${APP_NAME_ARG} /usr/local/bin/${APP_NAME_ARG}
 
 EXPOSE 8080
-CMD ${APP_NAME}
+CMD ["/usr/local/bin/feed-service"]

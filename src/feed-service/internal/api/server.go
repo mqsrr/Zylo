@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/jwtauth/v5"
@@ -9,6 +11,7 @@ import (
 	"github.com/mqsrr/zylo/feed-service/internal/config"
 	"github.com/mqsrr/zylo/feed-service/internal/db"
 	"github.com/mqsrr/zylo/feed-service/internal/mq"
+	"github.com/rs/zerolog/log"
 	"net/http"
 	"time"
 )
@@ -17,9 +20,10 @@ var tokenAuth *jwtauth.JWTAuth
 
 type Server struct {
 	*chi.Mux
-	config   *config.Config
-	storage  db.RecommendationService
-	consumer mq.Consumer
+	config     *config.Config
+	storage    db.RecommendationService
+	consumer   mq.Consumer
+	httpServer *http.Server
 }
 
 func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
@@ -33,11 +37,18 @@ func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
 }
 
 func NewServer(cfg *config.Config, storage db.RecommendationService, consumer mq.Consumer) *Server {
-	return &Server{
+	srv := &Server{
 		config:   cfg,
 		storage:  storage,
 		consumer: consumer,
 	}
+
+	srv.httpServer = &http.Server{
+		Addr:    cfg.ListeningAddress,
+		Handler: srv,
+	}
+
+	return srv
 }
 
 func setupJWT(cfg *config.JwtConfig) {
@@ -50,7 +61,7 @@ func setupJWT(cfg *config.JwtConfig) {
 		jwt.WithIssuer(cfg.Issuer))
 }
 
-func (s *Server) MountHandler() error {
+func (s *Server) MountHandlers() error {
 	setupJWT(s.config.Jwt)
 
 	r := chi.NewRouter()
@@ -81,6 +92,30 @@ func (s *Server) MountHandler() error {
 	s.Mux = r
 	return nil
 }
+
 func (s *Server) ListenAndServe() error {
-	return http.ListenAndServe(s.config.ListeningAddress, s)
+	go func() {
+		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			panic(err)
+		}
+	}()
+
+	return nil
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	if err := s.storage.Shutdown(ctx); err != nil {
+		log.Err(err).Msg("Database connection could not be closed")
+		return err
+	}
+
+	if err := s.consumer.Shutdown(); err != nil {
+		return err
+	}
+
+	return nil
 }

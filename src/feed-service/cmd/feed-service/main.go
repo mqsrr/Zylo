@@ -2,15 +2,24 @@
 
 import (
 	"context"
+	"github.com/joho/godotenv"
 	"github.com/mqsrr/zylo/feed-service/internal/api"
 	"github.com/mqsrr/zylo/feed-service/internal/config"
 	"github.com/mqsrr/zylo/feed-service/internal/db"
 	"github.com/mqsrr/zylo/feed-service/internal/mq"
 	"github.com/mqsrr/zylo/feed-service/logger"
 	"github.com/rs/zerolog/log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Warn().Err(err).Msg("Error loading .config file, falling back to environment variables")
+	}
+
 	cfg := config.Load()
 	logger.InitLogger()
 
@@ -29,13 +38,31 @@ func main() {
 	srv := api.NewServer(cfg, storage, c)
 	log.Info().Msgf("Listening on %s", cfg.ListeningAddress)
 
-	err = srv.MountHandler()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Could not mount the handlers")
+	if err = srv.MountHandlers(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to mount handlers")
 	}
 
-	err = srv.ListenAndServe()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Could not start a server")
+	serverCtx, serverStopCtx := context.WithCancel(context.Background())
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		<-sig
+		log.Info().Msg("Shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Fatal().Err(err).Msg("Error during shutdown")
+		}
+		serverStopCtx()
+	}()
+
+	if err = srv.ListenAndServe(); err != nil {
+		log.Fatal().Err(err).Msg("Server error")
 	}
+
+	<-serverCtx.Done()
+	log.Info().Msg("Server stopped")
 }

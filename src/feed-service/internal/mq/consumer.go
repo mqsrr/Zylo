@@ -6,10 +6,7 @@ import (
 	"github.com/mqsrr/zylo/feed-service/internal/config"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 )
 
 type Consumer interface {
@@ -23,20 +20,6 @@ type AmqConsumer struct {
 	channel *amqp.Channel
 	tag     string
 	done    chan error
-}
-
-func SetupCloseHandler(consumer Consumer) {
-	c := make(chan os.Signal, 2)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		<-c
-		log.Info().Msg("Ctrl+C pressed in Terminal")
-		if err := consumer.Shutdown(); err != nil {
-			log.Error().Err(err).Msgf("error during shutdown: %s", err)
-		}
-		os.Exit(0)
-	}()
 }
 
 func (c *AmqConsumer) Shutdown() error {
@@ -80,7 +63,6 @@ func NewConsumer(cfg *config.RabbitmqConfig) (Consumer, error) {
 		return nil, err
 	}
 
-	SetupCloseHandler(c)
 	return c, nil
 }
 
