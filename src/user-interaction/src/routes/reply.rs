@@ -19,14 +19,14 @@ use crate::utils::constants::POST_EXCHANGE_NAME;
 pub fn create_router(app_state: AppState, auth: Auth) -> Router {
     Router::new()
         .route("/api/posts/:postId/replies", get(get_all_from_post).post(create_reply))
-        .route("/api/posts/:postId/replies/:replyId", put(update_reply).delete(delete_reply))
+        .route("/api/posts/:postId/replies/:replyId", put(update_reply).delete(delete_reply).get(get_reply))
         .layer(middleware::from_fn_with_state(auth.clone(), authorization_middleware))
         .with_state(app_state)
 }
 
 #[derive(Deserialize)]
 struct GetAllFromPostParams {
-    #[serde(rename="userId")]
+    #[serde(rename = "userId")]
     user_id: Option<Ulid>,
 }
 
@@ -37,14 +37,14 @@ async fn get_all_from_post(State(mut app_state): State<AppState>, Path(post_id):
     if let Some(cached_value) = redis::hash_scan::<PostInteractionResponse>(&app_state.redis, "user-interaction:replies", &cache_field).await.unwrap_or_default() {
         return Ok((StatusCode::OK, Json(cached_value)));
     }
-    
+
     let mut response_builder = PostInteractionResponseBuilder::new();
     let mut replies: Vec<ReplyResponse> = Reply::get_all_from_post(&app_state.db, post_id, &mut app_state.user_profile_service)
         .await?
         .into_iter()
         .map(ReplyResponse::from)
         .collect();
-    
+
     let mut fields = replies.iter().map(|r| r.id.to_string()).collect::<Vec<_>>();
     fields.push(post_id.to_string());
 
@@ -52,32 +52,75 @@ async fn get_all_from_post(State(mut app_state): State<AppState>, Path(post_id):
     let views = redis::get_interactions(&app_state.redis, "user-interaction:posts:views", &fields).await?;
 
     for reply in replies.iter_mut() {
-        reply.likes = likes[&reply.id];
-        reply.views = views[&reply.id];
+        reply.likes = *likes.get(&reply.id).unwrap_or(&0);
+        reply.views = *views.get(&reply.id).unwrap_or(&0);
     }
-    
+
     if let Some(user_id) = params.user_id {
         let user_interactions = redis::is_user_interacted(&app_state.redis, &user_id.to_string(), fields).await?;
         for reply in replies.iter_mut() {
             reply.user_interacted = Some(*user_interactions.get(&reply.id.to_string()).unwrap_or(&false));
         }
-        
+
         response_builder = response_builder.user_interacted(Some(*user_interactions.get(&post_id.to_string()).unwrap_or(&false)));
     }
-    
+
     let mut ids = vec![cache_field];
     ids.extend(replies.iter().map(|r| r.id.to_string()));
-    let cache_field = ids.join(",");
-    
+    let cache_field = ids.join("-");
+
     let response = response_builder
         .post_id(post_id)
         .replies(map_nested(replies))
         .likes(*likes.get(&post_id).unwrap_or(&0))
         .views(*views.get(&post_id).unwrap_or(&0))
         .build();
-    
+
     let expire = (app_state.config.redis.expire_time * 60) as i64;
     redis::hash_set(&app_state.redis, "user-interaction:replies", &cache_field, &response, expire).await.map_err(|e| error!("{}",e)).unwrap();
+    Ok((StatusCode::OK, Json(response)))
+}
+
+async fn get_reply(State(mut app_state): State<AppState>, Path((_, reply_id)): Path<(Ulid, Ulid)>, Query(params): Query<GetAllFromPostParams>) -> Result<(StatusCode, Json<ReplyResponse>), AppError> {
+    let cache_field = params.user_id
+        .map_or_else(|| format!("*{}*", reply_id), |user_id| format!("*{}-{}*", user_id, reply_id));
+
+    if let Some(cached_value) = redis::hash_scan::<ReplyResponse>(&app_state.redis, "user-interaction:replies", &reply_id.to_string()).await.unwrap_or_default() {
+        return Ok((StatusCode::OK, Json(cached_value)));
+    }
+
+    let mut replies: Vec<ReplyResponse> = Reply::get(&app_state.db, &mut app_state.user_profile_service, reply_id)
+        .await?
+        .into_iter()
+        .map(ReplyResponse::from)
+        .collect();
+
+    let fields = replies.iter().map(|r| r.id.to_string()).collect::<Vec<_>>();
+
+    let likes = redis::get_interactions(&app_state.redis, "user-interaction:posts:likes", &fields).await?;
+    let views = redis::get_interactions(&app_state.redis, "user-interaction:posts:views", &fields).await?;
+
+    for reply in replies.iter_mut() {
+        reply.likes = *likes.get(&reply.id).unwrap_or(&0);
+        reply.views = *views.get(&reply.id).unwrap_or(&0);
+    }
+
+    if let Some(user_id) = params.user_id {
+        let user_interactions = redis::is_user_interacted(&app_state.redis, &user_id.to_string(), fields).await?;
+        for reply in replies.iter_mut() {
+            reply.user_interacted = Some(*user_interactions.get(&reply.id.to_string()).unwrap_or(&false));
+        }
+    }
+
+    let mut ids = vec![cache_field];
+    ids.extend(replies.iter().map(|r| r.id.to_string()));
+    let cache_field = ids.join("-");
+
+    let response = map_nested(replies).pop().unwrap();
+
+    let expire = (app_state.config.redis.expire_time * 60) as i64;
+    redis::hash_set(&app_state.redis, "user-interaction:replies", &cache_field, &response, expire).await.map_err(|e| error!("{}",e)).unwrap();
+
     Ok((StatusCode::OK, Json(response)))
 }
 
@@ -90,7 +133,7 @@ async fn create_reply(State(mut app_state): State<AppState>, Path(post_id): Path
 
     redis::hash_delete_all(&app_state.redis, "user-interaction:replies", &format!("*{}*", &post_id)).await.map_err(|e| error!("{}", e)).unwrap();
     amq::publish_event(&app_state.amq, POST_EXCHANGE_NAME, "reply.created", &ReplyCreatedMessage::from(response.clone())).await?;
-    
+
     Ok((StatusCode::OK, Json(response)))
 }
 
@@ -100,7 +143,7 @@ async fn update_reply(State(mut app_state): State<AppState>, Path((post_id, repl
 
     redis::hash_delete_all(&app_state.redis, "user-interaction:replies", &format!("*{}*", &post_id)).await.map_err(|e| error!("{}", e)).unwrap();
     amq::publish_event(&app_state.amq, POST_EXCHANGE_NAME, "reply.updated", &ReplyUpdatedMessage::new(reply_id, request.content, Utc::now().naive_utc())).await?;
-    
+
     Ok((StatusCode::OK, Json(response)))
 }
 

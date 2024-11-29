@@ -5,11 +5,9 @@ use axum::routing::{delete, post};
 use ulid::Ulid;
 use crate::errors::AppError;
 use crate::models::app_state::AppState;
-use crate::services::{amq, redis};
+use crate::services::{redis};
 use crate::auth::authorization_middleware;
-use crate::models::amq_message::{PostInteractedMessage};
 use crate::setting::Auth;
-use crate::utils::constants::POST_EXCHANGE_NAME;
 
 pub fn create_router(app_state: AppState, auth: Auth) -> Router {
     Router::new()
@@ -20,23 +18,20 @@ pub fn create_router(app_state: AppState, auth: Auth) -> Router {
         .with_state(app_state)
 }
 
-async fn like_post(State(state): State<AppState>, Path((user_id, post_id)): Path<(Ulid,Ulid)>) -> Result<StatusCode, AppError> {
+async fn like_post(State(state): State<AppState>, Path((user_id, post_id)): Path<(Ulid, Ulid)>) -> Result<StatusCode, AppError> {
     redis::like_post(&state.redis, user_id.to_string(), post_id.to_string()).await?;
-    
-    amq::publish_event(&state.amq, POST_EXCHANGE_NAME,"post.liked", &PostInteractedMessage::new(post_id, user_id)).await?;
+
     Ok(StatusCode::CREATED)
 }
 
-async fn unlike_post(State(state): State<AppState>, Path((user_id, post_id)): Path<(Ulid,Ulid)>) -> Result<StatusCode, AppError> {
+async fn unlike_post(State(state): State<AppState>, Path((user_id, post_id)): Path<(Ulid, Ulid)>) -> Result<StatusCode, AppError> {
     redis::unlike_post(&state.redis, user_id.to_string(), post_id.to_string()).await?;
-    
-    amq::publish_event(&state.amq, POST_EXCHANGE_NAME,"post.unliked", &PostInteractedMessage::new(post_id, user_id)).await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn view_post(State(state): State<AppState>, Path((user_id, post_id)): Path<(Ulid,Ulid)>) -> Result<StatusCode, AppError> {
+async fn view_post(State(state): State<AppState>, Path((user_id, post_id)): Path<(Ulid, Ulid)>) -> Result<StatusCode, AppError> {
     redis::add_view(&state.redis, user_id.to_string(), post_id.to_string()).await?;
-    
-    amq::publish_event(&state.amq, POST_EXCHANGE_NAME,"post.viewed", &PostInteractedMessage::new(post_id, user_id)).await?;
+
     Ok(StatusCode::CREATED)
 }

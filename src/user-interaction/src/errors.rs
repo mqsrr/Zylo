@@ -1,6 +1,4 @@
 ﻿use std::env::VarError;
-use aws_sdk_s3::operation::get_object::GetObjectError;
-use aws_sdk_s3::operation::head_object::HeadObjectError;
 use axum::extract::rejection::JsonRejection;
 use axum::response::{IntoResponse, Response};
 use axum::http::StatusCode;
@@ -15,10 +13,6 @@ use tokio_cron_scheduler::JobSchedulerError;
 pub enum AppError {
     #[error("Json Error: {0}")]
     InvalidJsonContent(#[from] JsonRejection),
-    #[error("S3 Head object error: {0}")]
-    S3HeadObjectError(#[from] HeadObjectError),   
-    #[error("S3 Get object error: {0}")]
-    S3GetObjectError(#[from] GetObjectError),
     #[error("Postgres Error: {0}")]
     PostgresDbErr(#[from] sqlx::Error),
     #[error("Redis Error: {0}")]
@@ -55,7 +49,6 @@ impl IntoResponse for AppError {
             AppError::EnvironmentVariableNotFound(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::LapinError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::S3HeadObjectError(_) | AppError::S3GetObjectError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::TonicStatus(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::ValidationError(_) => StatusCode::BAD_REQUEST,
             AppError::BearerTokenNotFound | AppError::InvalidBearerToken => StatusCode::UNAUTHORIZED,

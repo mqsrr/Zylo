@@ -35,4 +35,4 @@ COPY --from=builder /usr/src/user-interaction/target/release/user-interaction /u
 EXPOSE 8080
 
 # Command to run the application
-CMD ["user-interaction"]
+CMD ["/usr/local/bin/user-interaction"]

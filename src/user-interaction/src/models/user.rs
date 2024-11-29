@@ -1,6 +1,6 @@
 ﻿use serde::{Deserialize, Serialize};
 use ulid::Ulid;
-use crate::models::file::FileMetadata;
+use crate::models::file::{FileMetadata, FileMetadataResponse};
 
 #[derive(Debug, Clone)]
 pub struct User {
@@ -33,7 +33,7 @@ pub struct UserResponse {
     pub bio: String,
     pub location: String,
     #[serde(rename="profileImage")]
-    pub profile_image: FileMetadata,
+    pub profile_image: FileMetadataResponse,
 }
 
 impl From<User> for UserResponse{
@@ -44,7 +44,7 @@ impl From<User> for UserResponse{
             name: value.name,
             bio: value.bio.unwrap_or_default(),
             location: value.location.unwrap_or_default(),
-            profile_image: value.profile_image.unwrap(),
+            profile_image: value.profile_image.unwrap().into(),
         }
     }
 }

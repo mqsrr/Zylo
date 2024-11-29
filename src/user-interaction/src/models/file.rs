@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileMetadata {
-    #[serde(rename="fileName")]
     pub file_name: String,
-    #[serde(rename="contentType")]
     pub content_type: String,
     pub access_url: PresignedUrl,
 }
@@ -14,4 +12,23 @@ pub struct FileMetadata {
 pub struct PresignedUrl {
     pub url: String,
     pub expire_in: DateTime<Utc>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FileMetadataResponse {
+    #[serde(rename="fileName")]
+    pub file_name: String,
+    #[serde(rename="contentType")]
+    pub content_type: String,
+    pub url: String,
+}
+
+impl From<FileMetadata> for FileMetadataResponse {
+    fn from(value: FileMetadata) -> Self {
+        Self{
+            url: value.access_url.url,
+            file_name: value.file_name,
+            content_type: value.content_type,
+        }
+    }
 }

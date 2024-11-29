@@ -70,23 +70,6 @@ impl ReplyDeletedMessage {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PostInteractedMessage {
-    #[serde(rename = "Id")]
-    pub id: Ulid,
-    #[serde(rename = "userId")]
-    pub user_id: Ulid,
-}
-
-impl PostInteractedMessage {
-    pub fn new(post_id: Ulid, user_id: Ulid) -> Self {
-        Self {
-            id: post_id,
-            user_id,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct UserDeletedMessage {
     pub id: Ulid,
