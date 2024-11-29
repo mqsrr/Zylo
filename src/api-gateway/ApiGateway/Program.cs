@@ -1,6 +1,7 @@
 using ApiGateway.Aggregators;
 using ApiGateway.DelegatingHandlers;
 using ApiGateway.Extensions;
+using KubeClient;
 using Ocelot.DependencyInjection;
 using Ocelot.Middleware;
 using Ocelot.Provider.Polly;
@@ -11,10 +12,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((context, configuration) => 
     configuration.ReadFrom.Configuration(context.Configuration));
 
+
 builder.Configuration
-    .AddJsonFile("ocelot.json", false, true)
+    .AddEnvFile()
+    .AddJsonFile($"ocelot.{builder.Environment.EnvironmentName.ToLower()}.json", false, true)
     .AddAzureKeyVault()
     .AddJwtBearer(builder);
+
+if (builder.Environment.IsProduction())
+{
+    builder.Services.AddKubeClient();
+}
+
 
 builder.Services
     .AddHttpClient()

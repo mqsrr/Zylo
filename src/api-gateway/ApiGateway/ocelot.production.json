@@ -1,16 +1,16 @@
 ﻿{
   "Routes": [
     {
-      "UpstreamPathTemplate": "/notifications",
+      "UpstreamPathTemplate": "/notification/negotiates",
       "UpstreamHttpMethod": [
         "POST", "OPTIONS"
       ],
-      "DownstreamPathTemplate": "/notifications",
+      "DownstreamPathTemplate": "/notifications/negotiate",
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 5055
+          "Host": "notification-service",
+          "Port": 8095
         }
       ]
     },
@@ -23,7 +23,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-management",
           "Port": 8080
         }
       ],
@@ -44,7 +44,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-management",
           "Port": 8080
         }
       ],
@@ -65,7 +65,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-management",
           "Port": 8080
         }
       ],
@@ -86,7 +86,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-management",
           "Port": 8080
         }
       ],
@@ -107,7 +107,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "media-service",
           "Port": 8082
         }
       ],
@@ -134,7 +134,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "media-service",
           "Port": 8092
         }
       ],
@@ -162,8 +162,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -187,8 +187,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -212,8 +212,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -237,8 +237,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -262,8 +262,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -287,8 +287,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -312,8 +312,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -337,8 +337,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -362,7 +362,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-management",
           "Port": 8080
         }
       ],
@@ -388,7 +388,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-management",
           "Port": 8080
         }
       ],
@@ -409,7 +409,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-interaction",
           "Port": 8083
         }
       ],
@@ -434,7 +434,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-interaction",
           "Port": 8083
         }
       ],
@@ -460,7 +460,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-interaction",
           "Port": 8082
         }
       ],
@@ -488,7 +488,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "media-service",
           "Port": 8082
         }
       ],
@@ -504,31 +504,6 @@
         "AllowedScopes": []
       },
       "Key": "recent-posts"
-    }, 
-    {
-      "UpstreamPathTemplate": "/posts/{id}/media/{mediaId}",
-      "UpstreamHttpMethod": [
-        "GET"
-      ],
-      "DownstreamPathTemplate": "/api/posts/{id}/media/{mediaId}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "localhost",
-          "Port": 8082
-        }
-      ],
-      "LoadBalancerOptions": {
-        "Type": "RoundRobin"
-      },
-      "QoSOptions": {
-        "ExceptionsAllowedBeforeBreaking": 3,
-        "DurationOfBreak": 1000
-      },
-      "AuthenticationOptions": {
-        "AuthenticationProviderKey": "Bearer",
-        "AllowedScopes": []
-      }
     },
     {
       "UpstreamPathTemplate": "/users/{id}/likes/posts/{postId}",
@@ -539,7 +514,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-interaction",
           "Port": 8083
         }
       ],
@@ -564,7 +539,7 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
+          "Host": "user-interaction",
           "Port": 8083
         }
       ],
@@ -579,12 +554,7 @@
         "AuthenticationProviderKey": "Bearer",
         "AllowedScopes": []
       }
-    },   
-    
-    
-    
-    
-    
+    },
     {
       "UpstreamPathTemplate": "/users/{id}/relationships",
       "UpstreamHttpMethod": [
@@ -594,8 +564,8 @@
       "DownstreamScheme": "http",
       "DownstreamHostAndPorts": [
         {
-          "Host": "localhost",
-          "Port": 8091
+          "Host": "social-graph",
+          "Port": 8081
         }
       ],
       "LoadBalancerOptions": {
@@ -624,6 +594,10 @@
     }
   ],
   "GlobalConfiguration": {
-    "BaseUrl": "http://localhost:8090"
+    "ServiceDiscoveryProvider": {
+      "Namespace": "default",
+      "Type": "KubernetesServiceDiscoveryProvider",
+      "Host": "https://kubernetes.default.svc"
+    }
   }
 }

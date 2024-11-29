@@ -106,15 +106,15 @@ public sealed class FeedDelegatingHandler : DelegatingHandler
     
     private static async Task<Post> FetchPost(string postId, HttpClient client)
     {
-        var response = await client.GetAsync($"http://localhost:8082/api/posts/{postId}");
+        var response = await client.GetAsync($"http://media-service:8080/api/posts/{postId}");
         return (await response.Content.ReadFromJsonAsync<Post>())!;
     }
 
     private static async Task<PostInteractionResponse> FetchRepliesForPost(string postId,string? userId, HttpClient client)
     {
         string requestUri = string.IsNullOrEmpty(userId)
-            ? $"http://localhost:8083/api/posts/{postId}/replies"
-            : $"http://localhost:8083/api/posts/{postId}/replies?userId={userId}";
+            ? $"http://user-interaction:8080/api/posts/{postId}/replies"
+            : $"http://user-interaction:8080/api/posts/{postId}/replies?userId={userId}";
         
         var response = await client.GetAsync(requestUri);
         return (await response.Content.ReadFromJsonAsync<PostInteractionResponse>())!;

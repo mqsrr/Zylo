@@ -84,7 +84,7 @@ public sealed class UserAggregator : IDefinedAggregator
 
     private static async Task<PostInteractionResponse> FetchRepliesForPost(string postId, string userId, HttpClient client)
     {
-        var response = await client.GetAsync($"http://localhost:8083/api/posts/{postId}/replies?userId={userId}");
+        var response = await client.GetAsync($"http://user-interaction:8080/api/posts/{postId}/replies?userId={userId}");
         return (await response.Content.ReadFromJsonAsync<PostInteractionResponse>())!;
     }
 }
