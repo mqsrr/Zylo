@@ -4,8 +4,8 @@ pub mod user_profile {
 
 use crate::errors::AppError;
 use crate::models::file::{FileMetadata, PresignedUrl};
-use chrono::{DateTime, Utc};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use ulid::Ulid;
 use user_profile::user_profile_service_client::UserProfileServiceClient;
 use user_profile::UserProfileRequest;
@@ -24,7 +24,13 @@ pub struct UserProfileService {
 #[async_trait]
 impl ProfilePictureService for UserProfileService {
     async fn get_profile_picture(&mut self, user_id: Ulid) -> Result<FileMetadata, AppError> {
-        if let Some(file) = crate::services::redis::hash_get(&self.redis, "media", &format!("profile_pictures/{}", user_id)).await? {
+        if let Some(file) = crate::services::redis::hash_get(
+            &self.redis,
+            "media",
+            &format!("profile_pictures/{}", user_id),
+        )
+        .await?
+        {
             return Ok(file);
         }
 
@@ -34,8 +40,9 @@ impl ProfilePictureService for UserProfileService {
 
         let response = self.client.get_profile_picture(request).await?;
         let user_profile_picture = response.get_ref();
-        let expires_in = DateTime::<Utc>::from_timestamp_millis(user_profile_picture.expires_in).unwrap();
-        
+        let expires_in =
+            DateTime::<Utc>::from_timestamp_millis(user_profile_picture.expires_in).unwrap();
+
         let file = FileMetadata {
             id: user_id,
             file_name: user_profile_picture.file_name.clone(),
@@ -45,17 +52,24 @@ impl ProfilePictureService for UserProfileService {
                 expire_in: Some(expires_in),
             },
         };
-        
-        crate::services::redis::hash_set(&self.redis, "media", &format!("profile_pictures/{}", user_id), &file, (expires_in - Utc::now()).num_seconds()).await?;
+
+        crate::services::redis::hash_set(
+            &self.redis,
+            "media",
+            &format!("profile_pictures/{}", user_id),
+            &file,
+            (expires_in - Utc::now()).num_seconds(),
+        )
+        .await?;
         Ok(file)
     }
 }
 
 impl UserProfileService {
-    pub fn new(redis: redis::Client, client: UserProfileServiceClient<tonic::transport::Channel>) -> Self {
-        Self {
-            redis,
-            client,
-        }
+    pub fn new(
+        redis: redis::Client,
+        client: UserProfileServiceClient<tonic::transport::Channel>,
+    ) -> Self {
+        Self { redis, client }
     }
 }

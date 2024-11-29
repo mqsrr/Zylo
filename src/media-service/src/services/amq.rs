@@ -1,10 +1,8 @@
-use std::sync::Arc;
 use crate::errors::AppError;
 use crate::models::event_messages::{UserCreatedMessage, UserDeletedMessage, UserUpdatedMessage};
 use crate::models::post::Post;
 use crate::models::user::User;
 use crate::services::redis;
-use crate::services::s3::S3Service;
 use crate::settings::RabbitMq;
 use crate::utils::constants::{POST_EXCHANGE_NAME, USER_EXCHANGE_NAME};
 use futures_util::Future;
@@ -18,6 +16,8 @@ use lapin::{BasicProperties, Channel, Connection, ConnectionProperties};
 use log::warn;
 use mongodb::Database;
 use serde::Serialize;
+
+use super::s3::S3FileService;
 
 pub async fn open_amq_connection(config: &RabbitMq) -> Channel {
     let connection = Connection::connect(&config.uri, ConnectionProperties::default())
@@ -136,10 +136,10 @@ async fn handle_user_created(event: UserCreatedMessage, db: Database) -> Result<
     Ok(())
 }
 
-pub async fn consume_user_deleted<S: S3Service + Sync + Clone + Send + 'static>(
+pub async fn consume_user_deleted(
     channel: &Channel,
     db: Database,
-    s3file_service: Arc<S>,
+    s3file_service: S3FileService,
 ) -> Result<(), AppError> {
     consume_event(
         channel,
@@ -153,12 +153,12 @@ pub async fn consume_user_deleted<S: S3Service + Sync + Clone + Send + 'static>(
     .await
 }
 
-async fn handle_user_deleted<S: S3Service + Sync + Send + Clone + 'static>(
+async fn handle_user_deleted(
     event: UserDeletedMessage,
     db: Database,
-    s3file_service: Arc<S>,
+    s3file_service: S3FileService,
 ) -> Result<(), AppError> {
-    Post::delete_all_from_user(event.id, &db, s3file_service).await?;
+    Post::delete_all_from_user(event.id, &db, &s3file_service).await?;
     User::delete(event, &db).await?;
 
     Ok(())

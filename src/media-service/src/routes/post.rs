@@ -17,9 +17,7 @@ use axum::routing::{delete, get, post, put};
 use axum::{http::StatusCode, middleware, Json, Router};
 use ulid::Ulid;
 
-pub fn create_router<S: S3Service + Send + Sync + Clone + 'static>(
-    app_state: AppState<S>,
-) -> Router {
+pub fn create_router(app_state: AppState) -> Router {
     Router::new()
         .route("/api/posts", get(get_recent_posts))
         .route("/api/posts/:postId", get(get_post))
@@ -38,11 +36,11 @@ pub fn create_router<S: S3Service + Send + Sync + Clone + 'static>(
         .with_state(app_state)
 }
 
-async fn create_post<S: S3Service>(
-    State(mut state): State<AppState<S>>,
+async fn create_post(
+    State(mut state): State<AppState>,
     MultipartRequest(request): MultipartRequest<CreatePostRequest>,
 ) -> Result<(StatusCode, Json<PostResponse>), AppError> {
-    let post = Post::create(request, &state.db, state.s3file_service.clone()).await?;
+    let post = Post::create(request, &state.db, &state.s3file_service).await?;
     let user = User::get(post.user_id, &state.db, &mut state.user_profile_service).await?;
 
     redis::hash_delete(&state.redis, "media", &post.id.to_string()).await?;
@@ -54,22 +52,23 @@ async fn create_post<S: S3Service>(
         "post.created",
         &PostCreatedMessage::from(&post),
     )
-        .await?;
+    .await?;
 
     Ok((StatusCode::OK, Json(PostResponse::from(post, user))))
 }
 
-pub async fn get_recent_posts<S: S3Service>(
+pub async fn get_recent_posts(
     Query(params): Query<PaginationParams>,
-    State(mut state): State<AppState<S>>,
+    State(mut state): State<AppState>,
 ) -> Result<(StatusCode, Json<PaginatedResponse<PostResponse>>), AppError> {
     let posts = Post::get_posts(
         &state.db,
-        state.s3file_service.clone(),
+        &state.s3file_service,
         None,
         params.last_created_at,
         params.per_page,
-    ).await?;
+    )
+    .await?;
 
     let mut post_responses = Vec::new();
 
@@ -78,7 +77,7 @@ pub async fn get_recent_posts<S: S3Service>(
             Ok(user) => {
                 let post_response = PostResponse::from(post, user);
                 post_responses.push(post_response);
-            },
+            }
             Err(e) => {
                 eprintln!("Error fetching user for post {}: {:?}", post.user_id, e);
             }
@@ -92,20 +91,28 @@ pub async fn get_recent_posts<S: S3Service>(
         .map(|post| post.created_at.clone())
         .unwrap_or_default();
 
-    Ok((StatusCode::OK, Json(PaginatedResponse::new(post_responses, per_page, has_next_page, next_cursor))))
+    Ok((
+        StatusCode::OK,
+        Json(PaginatedResponse::new(
+            post_responses,
+            per_page,
+            has_next_page,
+            next_cursor,
+        )),
+    ))
 }
 
-async fn get_post<S: S3Service>(
-    State(mut state): State<AppState<S>>,
+async fn get_post(
+    State(mut state): State<AppState>,
     Path(post_id): Path<Ulid>,
 ) -> Result<(StatusCode, Json<PostResponse>), AppError> {
     if let Some(post) =
         redis::hash_get::<PostResponse>(&state.redis, "media", &post_id.to_string()).await?
     {
-        return Ok((StatusCode::OK, Json(post.into())));
+        return Ok((StatusCode::OK, Json(post)));
     }
 
-    let post = Post::get(post_id, &state.db, state.s3file_service.clone()).await?;
+    let post = Post::get(post_id, &state.db, &state.s3file_service).await?;
     let user = User::get(post.user_id, &state.db, &mut state.user_profile_service).await?;
 
     let post_response = PostResponse::from(post, user);
@@ -118,29 +125,35 @@ async fn get_post<S: S3Service>(
         &post_response,
         expire,
     )
-        .await?;
+    .await?;
 
     Ok((StatusCode::OK, Json(post_response)))
 }
 
-async fn get_users_posts<S: S3Service>(
+async fn get_users_posts(
     Query(params): Query<PaginationParams>,
-    State(mut state): State<AppState<S>>,
+    State(mut state): State<AppState>,
     Path(user_id): Path<Ulid>,
 ) -> Result<(StatusCode, Json<PaginatedResponse<PostResponse>>), AppError> {
-    if let Some(posts) = redis::hash_get::<PaginatedResponse<PostResponse>>(&state.redis, "media", &user_id.to_string()).await? {
+    if let Some(posts) = redis::hash_get::<PaginatedResponse<PostResponse>>(
+        &state.redis,
+        "media",
+        &user_id.to_string(),
+    )
+    .await?
+    {
         return Ok((StatusCode::OK, Json(posts)));
     }
 
     let user = User::get(user_id, &state.db, &mut state.user_profile_service).await?;
     let posts = Post::get_posts(
         &state.db,
-        state.s3file_service.clone(),
+        &state.s3file_service,
         Some(user_id),
         params.last_created_at,
         params.per_page,
-    ).await?;
-
+    )
+    .await?;
 
     let expire = state.config.s3_config.expire_time * 60;
     redis::hash_set(
@@ -150,15 +163,18 @@ async fn get_users_posts<S: S3Service>(
         &posts,
         expire as i64,
     )
-        .await?;
-    Ok((StatusCode::OK, Json(PaginatedResponse::from_posts(posts, user, params.per_page))))
+    .await?;
+    Ok((
+        StatusCode::OK,
+        Json(PaginatedResponse::from_posts(posts, user, params.per_page)),
+    ))
 }
 
-async fn update_post<S: S3Service>(
-    State(mut state): State<AppState<S>>,
+async fn update_post(
+    State(mut state): State<AppState>,
     MultipartRequest(request): MultipartRequest<UpdatePostRequest>,
 ) -> Result<(StatusCode, Json<PostResponse>), AppError> {
-    let post = Post::update(request, &state.db, state.s3file_service.clone()).await?;
+    let post = Post::update(request, &state.db, &state.s3file_service).await?;
     let user = User::get(post.user_id, &state.db, &mut state.user_profile_service).await?;
 
     redis::hash_delete(&state.redis, "media", &post.id.to_string()).await?;
@@ -170,16 +186,16 @@ async fn update_post<S: S3Service>(
         "post.updated",
         &PostUpdatedMessage::from(&post),
     )
-        .await?;
+    .await?;
 
     Ok((StatusCode::OK, Json(PostResponse::from(post, user))))
 }
 
-async fn delete_post<S: S3Service>(
-    State(state): State<AppState<S>>,
+async fn delete_post(
+    State(state): State<AppState>,
     Path((user_id, post_id)): Path<(Ulid, Ulid)>,
 ) -> Result<StatusCode, AppError> {
-    Post::delete(post_id, &state.db, state.s3file_service.clone()).await?;
+    Post::delete(post_id, &state.db, &state.s3file_service).await?;
 
     redis::hash_delete(&state.redis, "media", &post_id.to_string()).await?;
     redis::hash_delete(&state.redis, "media", &user_id.to_string()).await?;
@@ -190,12 +206,12 @@ async fn delete_post<S: S3Service>(
         "post.deleted",
         &PostDeletedMessage::new(post_id, user_id),
     )
-        .await?;
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn get_presigned_url<S: S3Service>(
-    State(state): State<AppState<S>>,
+async fn get_presigned_url(
+    State(state): State<AppState>,
     Path((_, _, media_id)): Path<(Ulid, Ulid, Ulid)>,
 ) -> Result<impl IntoResponse, AppError> {
     let url = state

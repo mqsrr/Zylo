@@ -1,14 +1,13 @@
 use crate::errors::AppError;
 use crate::models::file::{File, FileMetadata, FileMetadataResponse};
 use crate::models::user::{User, UserResponse};
-use crate::services::s3::S3Service;
+use crate::services::s3::{S3FileService, S3Service};
 use crate::utils::requests::{CreatePostRequest, UpdatePostRequest};
 use futures_util::TryStreamExt;
 use log::warn;
 use mongodb::bson::doc;
 use mongodb::{Collection, Database};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use ulid::Ulid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,7 +25,7 @@ impl Post {
     pub async fn create(
         mut request: CreatePostRequest,
         db: &Database,
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<Self, AppError> {
         let collection: Collection<Self> = db.collection("posts");
         File::process_files(&mut request.files, s3file_service).await?;
@@ -40,10 +39,10 @@ impl Post {
     pub async fn update(
         mut request: UpdatePostRequest,
         db: &Database,
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<Self, AppError> {
         let collection: Collection<Self> = db.collection("posts");
-        let post = Self::delete(request.id, db, s3file_service.clone()).await?;
+        let post = Self::delete(request.id, db, s3file_service).await?;
 
         File::process_files(&mut request.files, s3file_service).await?;
         let post = Self::from_update_request(request, post.created_at);
@@ -55,7 +54,7 @@ impl Post {
     pub async fn get(
         post_id: Ulid,
         db: &Database,
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<Self, AppError> {
         let collection: Collection<Self> = db.collection("posts");
         let mut post = collection
@@ -69,7 +68,7 @@ impl Post {
 
     pub async fn get_posts(
         db: &Database,
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
         user_id: Option<Ulid>,
         last_created_at: Option<String>,
         per_page: Option<u16>,
@@ -86,14 +85,15 @@ impl Post {
             filter_doc.insert("created_at", doc! { "$lt": last_created_at });
         }
 
-        let mut cursor = collection.find(filter_doc)
+        let mut cursor = collection
+            .find(filter_doc)
             .sort(doc! { "created_at": -1 })
-            .limit(per_page as i64).
-            await?;
+            .limit(per_page as i64)
+            .await?;
 
         let mut posts = Vec::new();
         while let Some(mut post) = cursor.try_next().await? {
-            File::populate_file_urls(&mut post.files_metadata, s3file_service.clone()).await?;
+            File::populate_file_urls(&mut post.files_metadata, s3file_service).await?;
             posts.push(post);
         }
 
@@ -103,7 +103,7 @@ impl Post {
     pub async fn delete(
         post_id: Ulid,
         db: &Database,
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<Self, AppError> {
         let collection: Collection<Self> = db.collection("posts");
         let deleted_post = collection
@@ -118,7 +118,7 @@ impl Post {
     pub async fn delete_all_from_user(
         user_id: Ulid,
         db: &Database,
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<(), AppError> {
         let collection: Collection<Self> = db.collection("posts");
 

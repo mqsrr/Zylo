@@ -35,4 +35,4 @@ COPY --from=builder /usr/src/media-service/target/release/media-service /usr/loc
 EXPOSE 8080
 
 # Command to run the application
-CMD ["media-service"]
+CMD ["/usr/local/bin/media-service"]

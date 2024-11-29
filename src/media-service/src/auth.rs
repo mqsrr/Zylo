@@ -39,9 +39,9 @@ pub async fn authorization_middleware(
 
 async fn authorize_user(auth_token: &str, auth_config: &Auth) -> Result<(), AppError> {
     let validation = VALIDATION
-        .get_or_init(|| create_validation(&auth_config))
+        .get_or_init(|| create_validation(auth_config))
         .await;
-    
+
     let decoding_key = DECODING_KEY
         .get_or_init(|| async { DecodingKey::from_secret(auth_config.secret.as_ref()) })
         .await;
@@ -54,8 +54,8 @@ async fn authorize_user(auth_token: &str, auth_config: &Auth) -> Result<(), AppE
 
 async fn create_validation(auth_config: &Auth) -> Validation {
     let mut validation = Validation::new(Algorithm::HS256);
-    validation.set_audience(&vec![auth_config.audience.clone()]);
-    validation.set_issuer(&vec![auth_config.issuer.clone()]);
+    validation.set_audience(&[auth_config.audience.clone()]);
+    validation.set_issuer(&[auth_config.issuer.clone()]);
 
     validation.set_required_spec_claims(&["aud", "iss", "nbf", "exp"]);
 

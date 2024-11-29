@@ -1,10 +1,9 @@
-use crate::errors::AppError;
 use crate::services::s3::S3Service;
+use crate::{errors::AppError, services::s3::S3FileService};
 use axum::extract::multipart::Field;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use ulid::Ulid;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,7 +35,7 @@ impl File {
 
     pub async fn process_files(
         files: &mut [File],
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<(), AppError> {
         for file in files {
             file.access_url = Some(s3file_service.upload(file).await?);
@@ -46,7 +45,7 @@ impl File {
 
     pub async fn populate_file_urls(
         files_metadata: &mut [FileMetadata],
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<(), AppError> {
         for file_metadata in files_metadata {
             file_metadata.access_url = s3file_service
@@ -88,7 +87,7 @@ impl From<File> for FileMetadata {
 impl FileMetadata {
     pub async fn delete_files(
         files_metadata: &[FileMetadata],
-        s3file_service: Arc<impl S3Service>,
+        s3file_service: &S3FileService,
     ) -> Result<(), AppError> {
         for file_metadata in files_metadata {
             s3file_service

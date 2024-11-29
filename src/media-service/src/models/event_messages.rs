@@ -17,8 +17,8 @@ pub struct PostCreatedMessage {
 impl From<&Post> for PostCreatedMessage {
     fn from(value: &Post) -> Self {
         Self {
-            id: value.id.clone(),
-            user_id: value.user_id.clone(),
+            id: value.id,
+            user_id: value.user_id,
             content: value.text.clone(),
             file_ids: value.files_metadata.iter().map(|f| f.id).collect(),
             created_at: value.created_at.clone(),
@@ -41,7 +41,7 @@ pub struct PostUpdatedMessage {
 impl From<&Post> for PostUpdatedMessage {
     fn from(value: &Post) -> Self {
         Self {
-            id: value.id.clone(),
+            id: value.id,
             content: value.text.clone(),
             file_ids: value.files_metadata.iter().map(|f| f.id).collect(),
             created_at: value.created_at.clone(),
