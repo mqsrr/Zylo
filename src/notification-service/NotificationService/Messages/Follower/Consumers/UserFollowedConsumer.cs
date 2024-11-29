@@ -41,7 +41,7 @@ internal sealed class UserFollowedConsumer : IConsumer
                 return;
             }
 
-            await _hubContext.Clients.Group(userFollowed.Id).UserFollowed(userFollowed.FollowedId);
+            await _hubContext.Clients.Group(userFollowed.FollowedId).UserFollowed(userFollowed.Id);
             await _channel.BasicAckAsync(ea.DeliveryTag, false, ea.CancellationToken);
         };
 

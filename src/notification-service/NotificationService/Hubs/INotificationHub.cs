@@ -13,6 +13,4 @@ public interface INotificationHub
     Task FriendRequestAccepted(string friendUserId);
     Task FriendRequestDeclined(string friendUserId);
     Task FriendRemoved(string friendUserId);
-
-    Task PostLiked(string postId);
 }

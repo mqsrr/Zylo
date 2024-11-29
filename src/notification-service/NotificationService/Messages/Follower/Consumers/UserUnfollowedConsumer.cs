@@ -41,7 +41,7 @@ internal sealed class UserUnfollowedConsumer : IConsumer
                 return;
             }
 
-            await _hubContext.Clients.Group(userUnfollowed.Id).UserUnfollowed(userUnfollowed.FollowedId);
+            await _hubContext.Clients.Group(userUnfollowed.FollowedId).UserUnfollowed(userUnfollowed.Id);
             await _channel.BasicAckAsync(ea.DeliveryTag, false, ea.CancellationToken);
         };
 

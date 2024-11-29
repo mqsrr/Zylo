@@ -1,4 +1,3 @@
-D:\Codes\Zylo\src\notification-service\NotificationService\bin\Debug\net8.0\appsettings.Development.json
 D:\Codes\Zylo\src\notification-service\NotificationService\bin\Debug\net8.0\appsettings.json
 D:\Codes\Zylo\src\notification-service\NotificationService\bin\Debug\net8.0\NotificationService.exe
 D:\Codes\Zylo\src\notification-service\NotificationService\bin\Debug\net8.0\NotificationService.deps.json
@@ -62,3 +61,6 @@ D:\Codes\Zylo\src\notification-service\NotificationService\obj\Debug\net8.0\refi
 D:\Codes\Zylo\src\notification-service\NotificationService\obj\Debug\net8.0\NotificationService.pdb
 D:\Codes\Zylo\src\notification-service\NotificationService\obj\Debug\net8.0\NotificationService.genruntimeconfig.cache
 D:\Codes\Zylo\src\notification-service\NotificationService\obj\Debug\net8.0\ref\NotificationService.dll
+D:\Codes\Zylo\src\notification-service\NotificationService\bin\Debug\net8.0\NotificationService.staticwebassets.endpoints.json
+D:\Codes\Zylo\src\notification-service\NotificationService\obj\Debug\net8.0\staticwebassets.build.endpoints.json
+D:\Codes\Zylo\src\notification-service\NotificationService\obj\Debug\net8.0\staticwebassets\msbuild.NotificationService.Microsoft.AspNetCore.StaticWebAssetEndpoints.props

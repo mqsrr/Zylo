@@ -50,7 +50,7 @@ internal sealed class UserCreatedConsumer : IConsumer
                 _logger.LogInformation("Email:{Email}, Code:{OtpCode}", email, otpCode);
                 await _channel.BasicAckAsync(ea.DeliveryTag, false, ea.CancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 await _channel.BasicNackAsync(ea.DeliveryTag, false, false, cancellationToken);
             }

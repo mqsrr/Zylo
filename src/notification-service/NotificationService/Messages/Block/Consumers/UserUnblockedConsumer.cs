@@ -41,7 +41,7 @@ internal sealed class UserUnblockedConsumer : IConsumer
                 return;
             }
 
-            await _hubContext.Clients.Group(userUnblocked.Id).UserUnblocked(userUnblocked.BlockedId);
+            await _hubContext.Clients.Group(userUnblocked.BlockedId).UserUnblocked(userUnblocked.Id);
             await _channel.BasicAckAsync(ea.DeliveryTag, false, ea.CancellationToken);
         };
 
