@@ -1,0 +1,129 @@
+﻿name: "Build And Test User Management"
+
+on:
+  push:
+    paths:
+      - 'user-management/**'
+      - 'shared/**'
+  pull_request:
+    paths:
+      - 'user-management/**'
+      - 'shared/**'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/user-management
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.x'
+
+
+      - name: Restore dependencies
+        run: dotnet restore UserManagement/UserManagement.csproj
+
+      - name: Build
+        run: dotnet build UserManagement/UserManagement.csproj --no-restore --configuration Release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            src/user-management/UserManagement/**/bin/Release/**
+            src/user-management/UserManagement/**/obj/Release/**
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    defaults:
+      run:
+        working-directory: src/user-management
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.x'
+
+      - name: Run unit tests
+        run: dotnet test src/user-management/UserManagement.Tests.Unit --no-build --configuration Release --collect:"XPlat Code Coverage;Format=cobertura" --results-directory ./TestResults
+
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-code-coverage-report
+          path: ./TestResults/
+  
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: ["build", "unit-tests"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.x'
+
+      - name: Run integration tests
+        run: dotnet test src/user-management/UserManagement.Tests.Integration --no-build --configuration Release --collect:"XPlat Code Coverage;Format=cobertura" --results-directory ./TestResults
+
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-tests-code-coverage-report
+          path: ./TestResults/
+
+  codecov:
+    runs-on: ubuntu-latest
+    needs: ["build","unit-tests","integration-tests"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download unit test code coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-tests-code-coverage-report
+
+      - name: Download integration test code coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-tests-code-coverage-report
+
+      - name: Merge code coverage reports
+        run: |
+          mkdir test-coverage
+          cp ./unit-tests-code-coverage-report/** test-coverage/
+          cp ./integration-tests-code-coverage-report/** test-coverage/
+
+      - name: Download a artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: code-coverage-report
+
+      - name: Upload Test Coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

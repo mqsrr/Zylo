@@ -1,6 +1,5 @@
 ﻿const BaseAPIUri = "http://localhost:8090"
 
-// Authentication
 export const SignUpUri = `${BaseAPIUri}/auth/register`
 export const SignInUri = `${BaseAPIUri}/auth/login`
 export const VerifyEmailByOtpCode = (id: string): string => `${BaseAPIUri}/auth/users/${id}/verify/email`
@@ -46,12 +45,10 @@ export const CreatePostUri = (userId: string): string => `${BaseAPIUri}/users/${
 export const UpdatePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`
 export const DeletePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`
 
-//Post Interactions
 export const LikePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/likes/posts/${postId}`
 export const UnlikePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/likes/posts/${postId}`
 export const ViewPostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/views/posts/${postId}`
 
-export const GetAllRepliesFromPostUri = (postId: string): string => `${BaseAPIUri}/posts/${postId}/replies`
 export const CreateReplyUri = (postId: string): string => `${BaseAPIUri}/posts/${postId}/replies`
 export const UpdateReplyContentUri = (postId: string, replyId: string): string => `${BaseAPIUri}/posts/${postId}/replies/${replyId}`
 export const DeleteReplyUri = (postId: string, replyId: string): string => `${BaseAPIUri}/posts/${postId}/replies/${replyId}`
