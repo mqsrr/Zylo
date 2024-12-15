@@ -7,6 +7,8 @@ interface PostContextType {
     posts: Post[];
     getPostById: (postId: string) => Post | null;
     addOrUpdatePost: (post: Post) => void;
+    fetchPostById: (postId: string) => Promise<Post | null>;
+    findParentPostByReplyId: (replyId: string) => Post | null;
 }
 
 export const PostContext = createContext<PostContextType | undefined>(undefined);
@@ -16,38 +18,79 @@ export const PostProvider: React.FC<{ children: ReactNode }> = ({children}) => {
     const {userId, accessToken} = useAuthContext();
 
     const getPostById = useCallback((postId: string) => {
+        const post = posts.find((p) => p.id === postId);
+        return post || null;
+    }, [posts]);
 
-        const post = posts.find((post) => post.id === postId);
-        if (!post && userId && accessToken) {
-            PostService.getPost(postId, userId, accessToken.value)
-                .then(post => {
-                    if (post) {
-                        posts.push(post);
-                        setPosts(posts);
-                    }
-
-                    return post;
-                });
-        }
-
-        return post ? post : null
-    }, [posts, userId, accessToken]);
 
     const addOrUpdatePost = useCallback((post: Post) => {
-        setPosts((prevPosts) => prevPosts.map(p => {
-            if (p.id === post.id) {
+        setPosts((prevPosts) => {
+            const index = prevPosts.findIndex((p) => p.id === post.id);
+            if (index !== -1) {
+                const updatedPosts = [...prevPosts];
+                updatedPosts[index] = post;
+                return updatedPosts;
+            } else {
+                return [...prevPosts, post];
+            }
+        });
+    }, []);
+
+    const fetchPostById = useCallback(
+        async (postId: string) => {
+            const existingPost = getPostById(postId);
+            if (existingPost) {
+                return existingPost;
+            }
+            if (!userId || !accessToken) {
+                return null;
+            }
+
+            try {
+                const fetchedPost = await PostService.getPost(postId, userId, accessToken.value);
+                if (fetchedPost) {
+                    addOrUpdatePost(fetchedPost);
+                    return fetchedPost;
+                }
+            } catch (error) {
+                console.error("Error fetching post by ID:", error);
+            }
+            return null;
+        },
+        [userId, accessToken, addOrUpdatePost, getPostById]
+    );
+
+    const findReplyInTree = (replies: Post["replies"], replyId: string): boolean => {
+        if (!replies) return false;
+        for (const reply of replies) {
+            if (reply.id === replyId) {
+                return true; // Found the reply
+            }
+            // If this reply has nested replies (treated as Post for convenience), search deeper
+            if (reply.nestedReplies && findReplyInTree(reply.nestedReplies, replyId)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const findParentPostByReplyId = useCallback((replyId: string): Post | null => {
+        for (const post of posts) {
+            if (findReplyInTree(post.replies, replyId)) {
                 return post;
             }
-            return p;
-        }));
-    }, []);
+        }
+        return null;
+    }, [posts]);
 
     return (
         <PostContext.Provider
             value={{
                 posts,
                 getPostById,
+                fetchPostById,
                 addOrUpdatePost,
+                findParentPostByReplyId
             }}>
             {children}
         </PostContext.Provider>

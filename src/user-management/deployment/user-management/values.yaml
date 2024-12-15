@@ -4,7 +4,7 @@ global:
     AZURE_CLIENT_ID: ""
     AZURE_CLIENT_SECRET: ""
     AZURE_TENANT_ID: ""
-    AZURE_VAULT_NAME: ""
+    AZURE_KEY_VAULT_URL: ""
     AWS_ACCESS_KEY_ID: ""
     AWS_SECRET_ACCESS_KEY: ""
     AWS_REGION: ""
@@ -12,7 +12,7 @@ global:
 replicaCount: 1
 
 image:
-  repository: mqsr/zylo/user-management
+  repository: mqsr/zylo-user-management
   pullPolicy: Always
   tag: "1.0.0"
 
@@ -69,9 +69,9 @@ env:
     name: "azure-key-vault"
     key: "tenantId"
 
-  AZURE_VAULT_NAME:
+  AZURE_KEY_VAULT_URL:
     name: "azure-key-vault"
-    key: "vaultName"
+    key: "key_vault"
 
 resources: {}
 
@@ -81,10 +81,9 @@ readinessProbe:
   httpGet:
     path: /healthz
     port: http
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    failureThreshold: 3
-
+    delay: 30s
+    period: 10s
+    failure: 3
 autoscaling:
   enabled: false
   minReplicas: 1

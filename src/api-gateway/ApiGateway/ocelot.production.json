@@ -124,7 +124,34 @@
       },
       "Key": "user-posts"
     },
-
+    {
+      "UpstreamPathTemplate": "/posts/{postId}",
+      "UpstreamHttpMethod": [
+        "GET", "PUT", "DELETE"
+      ],
+      "DownstreamPathTemplate": "/api/posts/{postId}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "user-interaction",
+          "Port": 8082
+        }
+      ],
+      "LoadBalancerOptions": {
+        "Type": "RoundRobin"
+      },
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 1000
+      },
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": []
+      },
+      "DelegatingHandlers": [
+        "PostDelegatingHandler"
+      ]
+    },
     {
       "UpstreamPathTemplate": "/users/{id}/feed",
       "UpstreamHttpMethod": [
@@ -281,7 +308,7 @@
     {
       "UpstreamPathTemplate": "/users/{id}/friends/requests/{userId}",
       "UpstreamHttpMethod": [
-        "POST", "DELETE"
+        "POST", "DELETE", "PUT"
       ],
       "DownstreamPathTemplate": "/api/users/{id}/friends/requests/{userId}",
       "DownstreamScheme": "http",
@@ -450,35 +477,7 @@
         "AllowedScopes": []
       }
     },
-
-    {
-      "UpstreamPathTemplate": "/posts/{postId}",
-      "UpstreamHttpMethod": [
-        "GET", "PUT", "DELETE"
-      ],
-      "DownstreamPathTemplate": "/api/posts/{postId}",
-      "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "user-interaction",
-          "Port": 8082
-        }
-      ],
-      "LoadBalancerOptions": {
-        "Type": "RoundRobin"
-      },
-      "QoSOptions": {
-        "ExceptionsAllowedBeforeBreaking": 3,
-        "DurationOfBreak": 1000
-      },
-      "AuthenticationOptions": {
-        "AuthenticationProviderKey": "Bearer",
-        "AllowedScopes": []
-      },
-      "DelegatingHandlers": [
-        "PostDelegatingHandler"
-      ]
-    },
+    
     {
       "UpstreamPathTemplate": "/posts",
       "UpstreamHttpMethod": [

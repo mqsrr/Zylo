@@ -1,9 +1,8 @@
 ﻿import {usePostContext} from "@/hooks/usePostContext.ts";
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import PostCard from "@/components/shared/PostCard.tsx";
 import PostService from "@/services/PostService.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
-import {debounce} from "@/lib/utils.ts";
 
 
 const Home = () => {
@@ -13,6 +12,7 @@ const Home = () => {
     const [feedPostIds, setFeedPostIds] = useState<string[]>([]);
     const [next, setNext] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const bottomRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         const fetchInitialPosts = async () => {
@@ -23,8 +23,9 @@ const Home = () => {
             try {
                 const response = await PostService.getUsersFeed(userId, accessToken.value);
                 if (response) {
+                    console.log(response)
                     setFeedPostIds(response.data.map((post) => post.id));
-                    setNext(response.next || null);
+                    setNext(response.hasNextPage ? response.next : null);
                     response.data.forEach(addOrUpdatePost);
                 }
             } catch (error) {
@@ -46,7 +47,7 @@ const Home = () => {
             const response = await PostService.getUsersFeed(userId, accessToken.value, next);
             if (response) {
                 setFeedPostIds((prevIds) => [...prevIds, ...response.data.map((post) => post.id)]);
-                setNext(response.next || null);
+                setNext(response.hasNextPage ? response.next : null);
                 response.data.forEach(addOrUpdatePost);
             }
         } catch (error) {
@@ -57,23 +58,25 @@ const Home = () => {
     }, [next, isLoading, userId, accessToken, addOrUpdatePost]);
 
     useEffect(() => {
-        const handleScroll = debounce(() => {
-            const scrollHeight = document.documentElement.scrollHeight;
-            const scrollTop = document.documentElement.scrollTop;
-            const clientHeight = document.documentElement.clientHeight;
-
-            if (scrollHeight - scrollTop <= clientHeight + 100) {
+        const observer = new IntersectionObserver((entries) => {
+            const [entry] = entries;
+            if (entry.isIntersecting && next) {
                 fetchNextPage().catch(console.error);
             }
-        }, 300); // Adjust debounce delay as needed
+        }, {
+            threshold: 1.0,
+        });
 
-        window.addEventListener("scroll", handleScroll);
+        if (bottomRef.current) {
+            observer.observe(bottomRef.current);
+        }
 
         return () => {
-            window.removeEventListener("scroll", handleScroll);
+            if (bottomRef.current) {
+                observer.unobserve(bottomRef.current);
+            }
         };
-    }, [fetchNextPage]);
-
+    }, [fetchNextPage, next]);
 
     return (
         <div className="flex flex-1">
@@ -82,7 +85,7 @@ const Home = () => {
                     <h2 className="h3-bold md:h2-bold text-left w-full"> Home feed</h2>
                     {isLoading && feedPostIds.length === 0 ? (
                         <div>Loading</div>
-                    ): (
+                    ) : (
                         <ul className="flex flex-col flex-1 gap-9 w-full">
                             {feedPostIds.map((id) => (
                                 <PostCard postId={id} key={id}/>
@@ -90,6 +93,7 @@ const Home = () => {
                         </ul>
                     )}
                     {isLoading && feedPostIds.length > 0 && <div>Loading more posts...</div>}
+                    <div ref={bottomRef} style={{height: "1px"}}/>
                 </div>
             </div>
 

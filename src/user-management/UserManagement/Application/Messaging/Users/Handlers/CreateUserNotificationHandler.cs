@@ -1,9 +1,7 @@
 ﻿using MassTransit;
 using Mediator;
-using Microsoft.AspNetCore.Identity;
 using UserManagement.Application.Mappers;
 using UserManagement.Application.Repositories.Abstractions;
-using UserManagement.Application.Services.Abstractions;
 
 namespace UserManagement.Application.Messaging.Users.Handlers;
 

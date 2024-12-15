@@ -1,0 +1,66 @@
+﻿@startuml C4_Model
+
+skinparam componentStyle rectangle
+
+package "Feed Service" {
+
+    class Server{
+        + MountHandlers()
+        ---
+        + HandlePostMessages()
+        + HandlePostInteractionMessages()
+        + HandleUserSocialMessages()
+        ---
+        + HandleGetFeed()
+    }
+
+    class Neo4jStorage
+    interface RecommendationService{
+        + CreateUser(userId: string)
+        + CreatePost(postId: string ,userId: string, content: string, createdAt: DateUtc)
+        + AddFriend(userId: string, friendId: string)
+        + RemoveFriend(userId: string, friendId: string)
+        + FollowUser(userId: string, followedUserID: string)
+        + UnfollowUser(userId: string, followedID: string)
+        + LikePost(userId: string, postID: string)
+        + UnlikePost(userId: string, postID: string)
+        + ViewPost(userId: string, postID: string)
+        + UpdatePostTags(userId: string, postID: string, content: string)
+        + DeleteUser(userId: string)
+        + DeletePost(postId: string)
+        + GenerateRecommendedPostIDs(userId: string, minLikes: int, limit: int, next: DateUtc)
+        + Shutdown()
+    }
+    
+    class AmqConsumer
+    interface Consumer {
+        + Consume(queue: string, consumeFunc: Func)
+        + PublishMessage(exchangeName: string, routingKey: string, value: object)
+        + Shutdown()
+    }
+    
+}
+
+package "External Systems" {
+    database Neo4j {
+    }
+
+    cloud AzureKeyVault {
+    }
+    
+    queue RabbitMQ {
+    }
+    
+}
+
+RecommendationService <|-- Neo4jStorage
+
+Consumer <|-- AmqConsumer
+
+Server --> RecommendationService
+Server --> Consumer
+
+AmqConsumer --> RabbitMQ
+Server --> AzureKeyVault
+Neo4jStorage --> Neo4j
+@enduml

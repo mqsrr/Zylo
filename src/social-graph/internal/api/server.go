@@ -67,13 +67,12 @@ func setupJWT(config *config.JwtConfig) {
 
 func (s *Server) MountHandlers() error {
 	setupJWT(s.cfg.Jwt)
-
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(m.ZerologMiddleware)
 	r.Use(jwtauth.Verifier(tokenAuth))
 	r.Use(jwtauth.Authenticator(tokenAuth))
 

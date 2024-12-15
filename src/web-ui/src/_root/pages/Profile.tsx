@@ -1,6 +1,6 @@
 ﻿import PostCard from "@/components/shared/PostCard.tsx";
 import {Link, useParams} from "react-router-dom";
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import {User} from "@/models/User.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import UserService from "@/services/UserService.ts";
@@ -8,7 +8,6 @@ import {format} from "date-fns";
 import SocialConnectionsService from "@/services/SocialConnectionsService.ts";
 import {Button} from "@/components/ui/button.tsx";
 import {usePostContext} from "@/hooks/usePostContext.ts";
-import {debounce} from "@/lib/utils.ts";
 import PostService from "@/services/PostService.ts";
 
 interface RelationshipStatus {
@@ -23,7 +22,7 @@ interface RelationshipStatus {
 const Profile = () => {
     const {id} = useParams<{ id: string }>();
     const {accessToken, userId} = useAuthContext();
-    const {addOrUpdatePost, getPostById} = usePostContext();
+    const {addOrUpdatePost} = usePostContext();
     const [user, setUser] = useState<User | null>(null);
     const [relationshipStatus, setRelationshipStatus] = useState<RelationshipStatus>({
         isFollowing: false,
@@ -37,7 +36,8 @@ const Profile = () => {
     const [next, setNext] = useState<string | null>(null);
     const [isLoadingUser, setIsLoadingUser] = useState(true);
     const [isLoadingPosts, setIsLoadingPosts] = useState(false);
-    const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+    const bottomRef = useRef<HTMLDivElement | null>(null);
+
     const isCurrentUser = id === userId || false;
 
     const fetchUser = useCallback(async () => {
@@ -85,7 +85,7 @@ const Profile = () => {
                     const newPostIds = response.data.map((post) => post.id);
                     return Array.from(new Set([...prevIds, ...newPostIds]));
                 });
-                setNext(response.next || null);
+                setNext(response.hasNextPage ? response.next : null);
                 response.data.forEach(addOrUpdatePost);
             }
         } catch (error) {
@@ -100,26 +100,39 @@ const Profile = () => {
     }, [fetchUser]);
 
     useEffect(() => {
-        fetchPosts().catch(console.error);
-    }, [fetchPosts]);
+        setPostIds([]);
+        setNext(null);
+        setUser(null);
+        setRelationshipStatus({
+            isFollowing: false,
+            isFriend: false,
+            hasSentFriendRequest: false,
+            hasReceivedFriendRequest: false,
+            isBlocked: false,
+            hasBlocked: false,
+        });
+    }, [id]);
 
     useEffect(() => {
-        const handleScroll = debounce(() => {
-            const scrollHeight = document.documentElement.scrollHeight;
-            const scrollTop = document.documentElement.scrollTop;
-            const clientHeight = document.documentElement.clientHeight;
-
-            if (scrollHeight - scrollTop <= clientHeight + 100 && next && !isFetchingNextPage) {
-                setIsFetchingNextPage(true);
-                fetchPosts().finally(() => setIsFetchingNextPage(false));
+        const observer = new IntersectionObserver((entries) => {
+            const [entry] = entries;
+            if (entry.isIntersecting && next) {
+                fetchPosts().catch(console.error);
             }
-        }, 300);
+        }, {
+            threshold: 1.0,
+        });
 
-        window.addEventListener("scroll", handleScroll);
+        if (bottomRef.current) {
+            observer.observe(bottomRef.current);
+        }
+
         return () => {
-            window.removeEventListener("scroll", handleScroll);
+            if (bottomRef.current) {
+                observer.unobserve(bottomRef.current);
+            }
         };
-    }, [fetchPosts, next, isFetchingNextPage]);
+    }, [fetchPosts, next]);
 
     if (isLoadingUser || !user) {
         return <div>User profile is loading</div>;
@@ -168,7 +181,7 @@ const Profile = () => {
         },
         block: async () => {
             await SocialConnectionsService.blockUser(userId!, user!.id, accessToken!.value);
-            updateRelationshipState({isBlocked: true, hasBlocked: true});
+            updateRelationshipState({hasBlocked: true});
         },
         unblock: async () => {
             await SocialConnectionsService.unblockUser(userId!, user!.id, accessToken!.value);
@@ -281,9 +294,6 @@ const Profile = () => {
 
 
     const formattedBirthDate = birthDate ? format(new Date(birthDate), "MMMM d, yyyy") : null;
-
-    const profilePosts = postIds.map((postId) => getPostById(postId)).filter(Boolean).filter(p => p !== null);
-
     return (
         <div className="container mx-auto px-4 py-6 overflow-auto">
             <div className="relative mb-6">
@@ -304,7 +314,7 @@ const Profile = () => {
                 <h1 className="text-3xl font-bold">{name}</h1>
                 <div className="flex items-center justify-between">
                     <h2 className="text-xl font-bold text-gray-600">@{username}</h2>
-                    <div>{!id || id !== userId ? renderActionButtons() : null}</div>
+                    <div className="space-x-2">{!id || id !== userId ? renderActionButtons() : null}</div>
                 </div>
                 {location && (
                     <p className="text-gray-600 mt-2">
@@ -330,8 +340,8 @@ const Profile = () => {
             </div>
             <div className="px-6">
                 <h2 className="text-2xl font-semibold mb-4 w-full">Posts</h2>
-                {profilePosts.length > 0 ? (
-                    profilePosts.map((post) => <PostCard key={post.id} postId={post.id} />)
+                {postIds.length > 0 ? (
+                    postIds.map((id) => <PostCard key={id} postId={id} />)
                 ) : (
                     <p>This user hasn't posted anything yet.</p>
                 )}

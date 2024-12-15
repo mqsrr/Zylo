@@ -19,6 +19,11 @@ mod utils;
 #[cfg(test)]
 mod tests;
 
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(unused_must_use)]
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();

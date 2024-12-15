@@ -1,0 +1,32 @@
+name: Build User Interaction
+
+on:
+  push:
+    paths:
+      - 'user-interaction/**'
+      - '.github/user-interaction.yml'
+  pull_request:
+    paths:
+      - 'user-interaction/**'
+      - '.github/user-interaction.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/user-interaction
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions/setup-rust@v2
+        with:
+          rust-version: stable
+
+      - name: Install dependencies
+        run: cargo fetch
+
+      - name: Build the project
+        run: cargo build --release

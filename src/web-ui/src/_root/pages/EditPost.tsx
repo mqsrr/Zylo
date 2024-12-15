@@ -3,33 +3,30 @@ import PostForm from "@/components/forms/PostForm.tsx";
 import {useParams} from "react-router-dom";
 import {Post} from "@/models/Post.ts";
 import {EditIcon} from "lucide-react";
-import PostService from "@/services/PostService.ts";
-import {useUserContext} from "@/hooks/useTokenContext.ts";
-import {useAuthContext} from "@/hooks/useAuthContext.ts";
+import {usePostContext} from "@/hooks/usePostContext.ts";
 
 const EditPost = () => {
     const {id} = useParams<{ id: string }>();
     const [post, setPost] = useState<Post | null>(null);
-    const {user} = useUserContext();
-    const {accessToken} = useAuthContext();
+    const {getPostById, fetchPostById} = usePostContext()
 
 
     useEffect(() => {
-        if (!id || !user || !accessToken) {
+        if (!id) {
             return;
         }
 
         const initializePost = async (): Promise<void> => {
-            const post = await PostService.getPost(id, user.id, accessToken.value);
+            let post = getPostById(id);
             if (!post) {
-                return;
+               post =  await fetchPostById(id)
             }
 
             setPost(post);
         }
 
         initializePost().catch(console.error)
-    }, [id, user, accessToken]);
+    }, [id, getPostById, fetchPostById]);
 
     if (!post) {
         return <div>Loading...</div>;

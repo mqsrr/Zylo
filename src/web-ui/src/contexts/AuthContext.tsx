@@ -76,9 +76,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({children}) => {
 
         setAccessToken(null);
         setUserId("");
-
-        navigate("/login")
-    },[accessToken,navigate])
+    },[accessToken])
 
     useEffect(() => {
         if (accessToken && accessToken.expirationDate < new Date(Date.now())) {

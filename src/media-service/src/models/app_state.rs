@@ -11,7 +11,7 @@ pub struct AppState {
     pub s3file_service: S3FileService,
     pub user_profile_service: UserProfileService,
     pub amq: lapin::Channel,
-    pub config: settings::AppConfig,
+    pub config: AppConfig,
 }
 
 impl AppState {

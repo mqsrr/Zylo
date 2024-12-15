@@ -98,6 +98,7 @@
         "DurationOfBreak": 1000
       }
     },
+   
     {
       "UpstreamPathTemplate": "/users/{id}/posts",
       "UpstreamHttpMethod": [
@@ -124,7 +125,31 @@
       },
       "Key": "user-posts"
     },
-
+    {
+      "UpstreamPathTemplate": "/users/{userId}/posts/{id}",
+      "UpstreamHttpMethod": [
+        "DELETE", "PUT"
+      ],
+      "DownstreamPathTemplate": "/api/users/{userId}/posts/{id}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "media-service",
+          "Port": 8080
+        }
+      ],
+      "LoadBalancerOptions": {
+        "Type": "RoundRobin"
+      },
+      "QoSOptions": {
+        "ExceptionsAllowedBeforeBreaking": 3,
+        "DurationOfBreak": 1000
+      },
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": []
+      }
+    },
     {
       "UpstreamPathTemplate": "/users/{id}/feed",
       "UpstreamHttpMethod": [
@@ -450,11 +475,10 @@
         "AllowedScopes": []
       }
     },
-
     {
       "UpstreamPathTemplate": "/posts/{postId}",
       "UpstreamHttpMethod": [
-        "GET", "PUT", "DELETE"
+        "GET", "DELETE"
       ],
       "DownstreamPathTemplate": "/api/posts/{postId}",
       "DownstreamScheme": "http",
@@ -555,8 +579,6 @@
         "AllowedScopes": []
       }
     },   
-    
-    
     
     
     

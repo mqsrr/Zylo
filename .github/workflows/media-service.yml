@@ -1,0 +1,32 @@
+name: Build Media Service
+
+on:
+  push:
+    paths:
+      - 'media-service/**'
+      - '.github/media-service.yml'
+  pull_request:
+    paths:
+      - 'media-service/**'
+      - '.github/media-service.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/media-service
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions/setup-rust@v2
+        with:
+          rust-version: stable
+
+      - name: Install dependencies
+        run: cargo fetch
+
+      - name: Build the project
+        run: cargo build --release

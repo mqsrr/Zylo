@@ -33,9 +33,9 @@ const SocialConnections = () => {
                 user = fetchedUser;
             }
             setUser(user);
-
         };
-        fetchUser();
+
+        fetchUser().catch(console.error);
     }, [id, accessToken, currentUser]);
 
     if (!user) {
@@ -216,7 +216,7 @@ const UserCard = ({ userSummary, relationshipType, isCurrentUser }: UserCardProp
                     </Link>
                     <div className="ml-3">
                         <p className="font-semibold text-lg">{userSummary.username}</p>
-                        {<p className="text-sm text-gray-400">{"bio"}</p>}
+                        {<p className="text-sm text-gray-400">{userSummary?.bio}</p>}
                     </div>
                 </div>
                 {isCurrentUser && renderActionButton()}

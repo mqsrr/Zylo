@@ -16,12 +16,21 @@ pub async fn create_app(config: AppConfig, app_state: AppState) -> Router {
         .init();
 
     Router::new()
-        .merge(routes::reply::create_router(app_state.clone(), config.auth.clone()))
-        .merge(routes::interaction::create_router(app_state, config.auth))
+        .merge(routes::reply::create_router(app_state, config.auth))
         .layer(
             trace::TraceLayer::new_for_http()
+                .on_request(|request, _span| {
+                    tracing::info!(
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        headers = ?request.headers()
+                    );
+                })
                 .make_span_with(trace::DefaultMakeSpan::new().include_headers(true))
-                .on_response(trace::DefaultOnResponse::new().level(tracing::Level::INFO)),
+                .on_response(trace::DefaultOnResponse::new()
+                    .level(tracing::Level::INFO)
+                    .include_headers(true))
+                .on_failure(trace::DefaultOnFailure::new().level(tracing::Level::ERROR)),
         )
         .layer(SetSensitiveHeadersLayer::new(std::iter::once(
             header::AUTHORIZATION,

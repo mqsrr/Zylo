@@ -10,6 +10,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/mqsrr/zylo/feed-service/internal/config"
 	"github.com/mqsrr/zylo/feed-service/internal/db"
+	m "github.com/mqsrr/zylo/feed-service/internal/middleware"
 	"github.com/mqsrr/zylo/feed-service/internal/mq"
 	"github.com/rs/zerolog/log"
 	"net/http"
@@ -65,9 +66,9 @@ func (s *Server) MountHandlers() error {
 	setupJWT(s.config.Jwt)
 
 	r := chi.NewRouter()
+	r.Use(m.ZerologMiddleware)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(jwtauth.Verifier(tokenAuth))
 	r.Use(jwtauth.Authenticator(tokenAuth))

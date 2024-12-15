@@ -44,7 +44,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/goblin-sigma-farmer-define-visible-8374
+      - NEO4J_AUTH=${SOCIAL_NEO4J_AUTH}
 
   feed-service-neo4j:
     image: neo4j:5.23
@@ -52,7 +52,7 @@ services:
       - "7475:7474"
       - "7688:7687"
     environment:
-      - NEO4J_AUTH=neo4j/info-susan-shirt-sultan-random-5993
+      - NEO4J_AUTH=${FEED_NEO4J_AUTH}
 
   user-management:
     image: mqsr/zylo/user-management:1.0.0
@@ -143,6 +143,6 @@ services:
     ports:
       - '8090:8080'
     environment:
-      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_ENVIRONMENT: "Staging"
     env_file:
       - .env

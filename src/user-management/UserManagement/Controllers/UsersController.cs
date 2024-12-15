@@ -1,5 +1,4 @@
 ﻿using Asp.Versioning;
-using MassTransit.Mediator;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using UserManagement.Application.Contracts.Requests.Users;

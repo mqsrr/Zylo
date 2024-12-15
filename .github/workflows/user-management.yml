@@ -4,11 +4,11 @@ on:
   push:
     paths:
       - 'user-management/**'
-      - 'shared/**'
+      - '.github/user-management.yml'
   pull_request:
     paths:
       - 'user-management/**'
-      - 'shared/**'
+      - '.github/user-management.yml'
 jobs:
   build:
     runs-on: ubuntu-latest

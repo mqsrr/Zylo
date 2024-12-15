@@ -8,7 +8,7 @@ import PostInteractions from "./PostInteractions";
 import {Card, CardContent} from "@/components/ui/card.tsx";
 import Replies from "./Replies";
 import {EditIcon} from "lucide-react";
-import React, {useCallback, useState} from "react";
+import React, {useCallback, useEffect, useState} from "react";
 import {formatDistanceToNow} from "date-fns";
 import {Reply} from "@/models/Reply.ts";
 import {usePostContext} from "@/hooks/usePostContext.ts";
@@ -21,22 +21,36 @@ type PostCardProps = {
 
 const PostCard = ({postId}: PostCardProps) => {
     const {userId} = useAuthContext();
-    const {getPostById, addOrUpdatePost} = usePostContext();
-    const [post, ] = useState<Post | null>(getPostById(postId));
-
+    const {getPostById, addOrUpdatePost, fetchPostById} = usePostContext();
+    const [post, setPost] = useState<Post | null>(getPostById(postId));
+    const navigate = useNavigate();
     const replies = post?.replies || [];
 
     const handleReplySubmit = useCallback((newReply: Reply) => {
         const updatedPost = {
             ...post,
             replies: [newReply, ...(post?.replies || [])],
-        };
+        } as Post;
 
-        addOrUpdatePost(updatedPost as Post);
-    }, [replies, post, addOrUpdatePost, replies]);
+        addOrUpdatePost(updatedPost);
+        setPost(updatedPost);
+    }, [post, addOrUpdatePost]);
 
 
-    const navigate = useNavigate();
+    useEffect(() => {
+        if (!post) {
+            fetchPostById(postId)
+                .then((fetchedPost) => {
+                    if (fetchedPost) {
+                        setPost(fetchedPost);
+                    }
+                })
+                .catch((error) => {
+                    console.error("Error fetching post:", error);
+                });
+        }
+    }, [postId, post, fetchPostById]);
+
     if (!post) {
         return <></>;
     }
@@ -45,10 +59,12 @@ const PostCard = ({postId}: PostCardProps) => {
         navigate(`/edit/posts/${post.id}`);
     };
 
-
     const relativeDate = formatDistanceToNow(new Date(post.createdAt), {
         addSuffix: true,
     });
+
+
+
     return (
         <Card className="shadow-md rounded-lg overflow-hidden mb-6">
             <CardContent>

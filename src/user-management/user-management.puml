@@ -1,0 +1,260 @@
+﻿@startuml C4_Model
+
+skinparam componentStyle rectangle
+
+package "User Management Service" {
+    
+    class AuthController {
+        + Login(LoginRequest)
+        + Register(RegisterRequest)
+        + RefreshAccessToken(id: string, VerifyEmailRequest)
+        + RevokeRefreshToken()
+        + VerifyEmail()
+        - SetHttpOnlyCookie(cookieName: string, value: string, expires: UTC)
+    }
+
+    class UsersController {
+        + GetById(id: string)
+        + Update(id: string, UpdateUserRequest)
+        + Delete(id: string)
+    }
+    interface IAuthService {
+        + Login(LoginRequest): (AuthenticationResult, RefreshTokenResponse)
+        + Register(RegisterRequest): (AuthenticationResult, RefreshTokenResponse)
+        + RefreshAccessToken(token: string): (AuthenticationResult, RefreshTokenResponse)
+        + VerifyEmail(id: string, otp: string): boolean
+        + RevokeRefreshToken(token: string): boolean
+        + DeleteById(id: string): boolean
+    }
+    
+    interface IDbConnectionFactory {
+        + Create(): DatabaseConnection
+    }
+    
+    interface ITokenWriter {
+        + GenerateAccessToken(identity: Identity): AccessToken
+        + ParseRefreshToken(refreshToken: string): byte[]
+        + GenerateRefreshToken(id: string): RefreshToken
+    }
+
+    interface IHashService {
+        + Hash(input: string): (Hash: string, Salt: string)
+        + VerifyHash(data: string, hash: string, salt: string): boolean
+    }
+
+    interface IOtpService {
+        + CreateOneTimePassword(length: int): string
+    }
+
+    interface IEncryptionService {
+        + Encrypt(data: string): (encryptedData: string, iv: string)
+    }
+
+    interface ICacheService {
+        + HGet(key: string, field: string): object
+        + HSet(key: string, field: string, entity: string, expiry: time)
+        + HRemove(key: string, fields; string)
+        + GetOrCreate(key: string, field: string, createEntity: delegate, expiry: time): object
+    }
+    
+    interface IConsumer <<external>> {
+        + Consumes internal messages
+        --
+        + Handle(Notification)
+    }
+    
+    interface IPublisher <<external>> {
+        + Produces internal message 
+        --
+        + Publish(message)
+    }
+    
+    enum ImageCategory {
+        Profile
+        Background
+    }
+    
+    interface IImageService {
+        + GetImage(userId: string, category: ImageCategory): ProfileImage
+        + Upload(userId: string, file: File): boolean
+        + DeleteAll(userId: string): boolean
+    }
+    
+    interface IUserRepository {
+        + GetById(userId: string): User
+        + Create(user: User, profileImage: File, backgroundImage: File): boolean
+        + Update(user: User, profileImage: File, backgroundImage: File): boolean
+        + DeletById(userId: string): boolean
+    }
+    
+    interface IPublishEndpoint <<external>> {
+        + Sends messages to the message provider
+        --
+        + Publish(message: object)
+    }
+    
+    class ExceptionlessAuthService<<decorator>> {
+        + Catches database exceptions and converts them into api response 
+    }
+    class AuthService 
+    class UserRepository 
+    class CacheService
+    class CreateOtpOnUserCreatedNotificationHandler
+    class CachedUserRepository <<decorator>>{
+        + Caches the response and invalidates the cache on data change
+    }
+    
+    class TokenWriter 
+    class HashService 
+    class ImageService 
+    class DbConnectionFactory
+    class OtpService 
+    class EncryptionService
+    class CreateUserNotificationHandler 
+    class PrefixKeyVaultSecretManager
+    class UserUpdatedNotificationHandler
+    class UserDeletedNotificationHandler
+    
+    class AccessToken <<model>> {
+        + Value: string
+        + ExpirationDate: DateUtc
+    }
+    
+    class AuthenticationResult <<model>> {
+        + Success: boolean
+        + Id: ulid
+        + EmailVerified: boolean
+        + AccessToken: AccessToken
+        + Error: nullable string
+    }
+    
+    class FileMetadata <<model>> {
+        + AccessUrl: PresignedUrl
+        + ContentType: string
+        + FileName: string
+    }
+    
+    class PresignedUrl <<model>> {
+        + Url: string
+        + ExpiresIn: DateUtc
+    }
+    
+    class User <<model>> {
+        + Id: string
+        + ProfileImage: FileMetadata
+        + backgroundImage: FileMetadata
+        + Name: string
+        + Username: string
+        + Bio: string
+        + Location: string
+        + BirthDate: Date
+    }
+    
+    class Identity <<model>> {
+        + Id: string
+        + Username: string
+        + EmailHash: string
+        + EmailSalt: string
+        + EmailVerified: boolean
+        + PasswordHash: string
+        + PasswordSalt: string
+    }
+        
+    class OtpCode <<model>> {
+        + identityId: string
+        + CodeHash: string
+        + Salt: string
+        + CreatedAt: DateUtc
+        + ExpiresAt: DateUtc
+    } 
+      
+    class RefreshToken <<model>> {
+        + Token: byte[]
+        + identityId: string
+        + ExpirationDate: DateUtc
+        + Revoked: boolean
+    }
+    
+    class RefreshTokenResponse <<model>> {
+        + Value: string
+        + ExpirationDate: DateUtc
+        + Revoked: boolean
+    }
+}
+
+package "External Systems" {
+    database Redis {
+    }
+
+    database PostgreSQL {
+    }
+
+    cloud S3Bucket {
+    }
+    
+    cloud AzureKeyVault {
+    }
+    
+    entity gRPC <<server>>{
+        + GetProfileImage(userId: string)
+    }
+    
+    queue RabbitMQ {
+    }
+    
+}
+AuthController --> IAuthService
+UsersController --> IUserRepository
+
+ITokenWriter <|-- TokenWriter
+IHashService <|-- HashService
+IOtpService <|-- OtpService
+IEncryptionService <|-- EncryptionService
+IAuthService <|-- AuthService
+IDbConnectionFactory <|-- DbConnectionFactory
+IImageService <|-- ImageService
+
+AuthService --> ITokenWriter
+AuthService --> IHashService
+AuthService --> IPublisher
+AuthService --> IDbConnectionFactory
+
+IUserRepository <|-- UserRepository
+IUserRepository <|-- CachedUserRepository
+
+CachedUserRepository --> ICacheService
+
+UserRepository --> IDbConnectionFactory
+UserRepository --> IImageService
+UserRepository --> IPublisher
+
+ExceptionlessAuthService <|-- IAuthService
+ExceptionlessAuthService --> IAuthService
+
+CreateUserNotificationHandler <|-- IConsumer: executes when user is created
+CreateUserNotificationHandler --> IUserRepository
+CreateUserNotificationHandler --> IPublishEndpoint
+
+CreateOtpOnUserCreatedNotificationHandler <|-- IConsumer: executes when user is created
+CreateOtpOnUserCreatedNotificationHandler --> IOtpService
+CreateOtpOnUserCreatedNotificationHandler --> IHashService
+CreateOtpOnUserCreatedNotificationHandler --> IDbConnectionFactory
+CreateOtpOnUserCreatedNotificationHandler --> IPublishEndpoint
+
+UserDeletedNotificationHandler <|-- IConsumer: executes when user is deleted
+UserDeletedNotificationHandler --> IAuthService
+UserDeletedNotificationHandler --> IPublishEndpoint
+
+UserUpdatedNotificationHandler <|-- IConsumer: executes when user is updated
+UserUpdatedNotificationHandler --> IPublishEndpoint
+
+CacheService <|-- ICacheService
+
+UserRepository --> PostgreSQL
+AuthService --> PostgreSQL
+IPublishEndpoint --> RabbitMQ
+CacheService --> Redis
+ImageService --> S3Bucket
+
+PrefixKeyVaultSecretManager --> AzureKeyVault: Loads secrets on program start
+@enduml

@@ -1,0 +1,32 @@
+
+name: "Build Api Gateway"
+
+on:
+  push:
+    paths:
+      - 'api-gateway/**'
+      - '.github/api-gateway.yml'
+  pull_request:
+    paths:
+      - 'api-gateway/**'
+      - '.github/api-gateway.yml'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/api-gateway
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.x'
+
+      - name: Restore dependencies
+        run: dotnet restore ApiGateway/ApiGateway.csproj
+
+      - name: Build
+        run: dotnet build ApiGateway/ApiGateway.csproj --no-restore --configuration Release

@@ -1,7 +1,7 @@
 ﻿import {Post} from "@/models/Post.ts";
 import {EyeIcon, HeartIcon} from "lucide-react";
 import PostService from "@/services/PostService.ts";
-import React, {useState} from "react";
+import React, {useCallback, useState} from "react";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import {Reply} from "@/models/Reply.ts";
 import {Button} from "@/components/ui/button.tsx";
@@ -16,7 +16,7 @@ type PostInteractionsProps = {
 
 const PostInteractions = ({post, isTopLevel = true, onReplySubmit}: PostInteractionsProps) => {
     const {userId, accessToken} = useAuthContext();
-    const {getPostById, addOrUpdatePost} = usePostContext()
+    const {getPostById, addOrUpdatePost, fetchPostById, findParentPostByReplyId} = usePostContext()
     const [likes, setLikes] = useState(post.likes);
     const [isLiked, setIsLiked] = useState(post.userInteracted);
     const [views] = useState(post.views);
@@ -24,41 +24,57 @@ const PostInteractions = ({post, isTopLevel = true, onReplySubmit}: PostInteract
     const [showReplyInput, setShowReplyInput] = useState(false);
     const [replyContent, setReplyContent] = useState("");
 
+    const ensureParentPostAvailable = useCallback(async () => {
+        if ("replyToId" in post && post.replyToId) {
+            let parentPost = findParentPostByReplyId(post.id)
+            if (!parentPost) {
+                parentPost = await fetchPostById(post.replyToId);
+            }
+            return parentPost;
+        }
+        return null;
+    }, [post, getPostById, fetchPostById, findParentPostByReplyId]);
+
     const handleLikePost = async (e: React.MouseEvent) => {
         e.stopPropagation();
 
         if (!userId || !accessToken) return;
 
-        setLikes(isLiked ? likes - 1 : likes + 1);
-        const action = !isLiked ? PostService.likePost : PostService.unlikePost;
+        const previousLikes = likes;
+        const previousIsLiked = isLiked;
 
+        setLikes(isLiked ? likes - 1 : likes + 1);
         setIsLiked(!isLiked);
+
+        const action = !isLiked ? PostService.likePost : PostService.unlikePost;
         const isUpdated = await action(userId, post.id, accessToken.value);
+
         if (!isUpdated) {
-            setLikes(isLiked ? likes - 1 : likes + 1);
-            setIsLiked(!isLiked);
+            setLikes(previousLikes);
+            setIsLiked(previousIsLiked);
+            return;
         }
 
         const updatedPost: Reply | Post = {
             ...post,
-            likes: likes,
+            likes: isLiked ? likes - 1 : likes + 1,
             userInteracted: !post.userInteracted,
         };
+
         if ("replyToId" in post) {
-            const parentPost = getPostById(post.replyToId);
+            const parentPost = await ensureParentPostAvailable();
             if (parentPost) {
-                const updatedReplies = parentPost.replies!.map((reply) =>
-                    reply.id === post.id ? {...reply, ...updatedPost as Reply} : reply
+                const updatedReplies = parentPost.replies!.map((r) =>
+                    r.id === post.id ? {...r, ...updatedPost as Reply} : r
                 );
-
-
                 addOrUpdatePost({...parentPost, replies: updatedReplies});
-                return;
             }
+            return;
         }
 
         addOrUpdatePost(updatedPost as Post);
     };
+
 
     const toggleReplyInput = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -69,19 +85,30 @@ const PostInteractions = ({post, isTopLevel = true, onReplySubmit}: PostInteract
         if (!replyContent.trim() || !userId || !accessToken) return;
 
         try {
-
             const reply = await PostService.createReply(userId, post.id, replyContent, accessToken.value);
-            if (!reply) {
-                return;
-            }
+            if (!reply) return;
 
             setReplyContent("");
             setShowReplyInput(false);
 
             if (onReplySubmit) {
                 onReplySubmit(reply);
+                return;
             }
 
+            if ("replyToId" in post) {
+                const parentPost = await ensureParentPostAvailable();
+                if (parentPost) {
+                    const updatedReplies = [reply, ...(parentPost.replies || [])];
+                    addOrUpdatePost({...parentPost, replies: updatedReplies});
+                }
+            } else {
+                const updatedPost = {
+                    ...post,
+                    replies: [reply, ...(post.replies || [])]
+                } as Post;
+                addOrUpdatePost(updatedPost);
+            }
         } catch (error) {
             console.error("Error submitting reply:", error);
         }

@@ -1,0 +1,113 @@
+﻿@startuml C4_Model
+
+skinparam componentStyle rectangle
+
+package "Social Graph Service" {
+
+    class Server{
+        + MountHandlers()
+        ---
+        + HandleUserCreatedMessage()
+        + HandleUserUpdatedMessage()
+        + HandleUserDeletedMessage()
+        ---
+        + HandleGetUserWithRelationships()
+        + HandleGetFollowers()
+        + HandleGetFollowedPeople()
+        + HandleGetBlockedPeople()
+        + HandleGetFriends()
+        + HandleGetPendingFriendRequests()
+        + HandleRemoveFriend()
+        + HandleFollowUser()
+        + HandleUnfollowUser()
+        + HandleSendFriendRequest()
+        + HandleAcceptFriendRequest()
+        + HandleDeclineFriendRequest()
+        + HandleBlockUser()
+        + HandleUnblockUser()
+    }
+
+    class Neo4jStorage
+    interface RelationshipStorage{
+        + GetUserWithRelationships(userId: string): UserWithRelationships
+        + GetFollowers(userId: string): User[]
+        + GetFollowedPeople(userId: string): User[]
+        + GetBlockedPeople(userId: string): User[]
+        + GetFriends(userId: string): User[]
+        + GetPendingFriendRequests(userId: string): User[]
+        + RemoveFriend(userId: string, friendId: string): boolean
+        + FollowUser(userId: string, followedId: string): boolean
+        + UnfollowUser(userId: string, followedId: string): boolean
+        + SendFriendRequest(userId: string, receiverID: string): boolean
+        + AcceptFriendRequest(userId: string, receiverID: string): boolean
+        + DeclineFriendRequest(userId: string, receiverID: string): boolean
+        + BlockUser(userId: string, blockedID: string): boolean
+        + UnblockUser(userId: string, blockedID: string): boolean
+        
+    }
+    
+    interface Storage {
+        + CreateUser(user: User): boolean
+        + UpdateUser(userId: string, name: string, bio: string, location: string): boolean
+        + DeleteUserById(userId: string): boolean
+    }
+    
+    class RedisCacheStorage
+    interface CacheStorage {
+        + HSet(key:string, field: string, value: object, expire: time)
+        + HGet(key: string, field: string): object
+        + HDelete(key: string, fields: string[])
+        + HDeleteAll(key:string, pattern: string)
+    }
+    
+    class AmqConsumer
+    interface Consumer {
+        + Consume(queue: string, consumeFunc: Func)
+        + PublishMessage(exchangeName: string, routingKey: string, value: object)
+        + Shutdown()
+    }
+    
+    class UserProfileService 
+    interface ProfileService {
+        + GetProfileImage(userId: string): FileMetadata
+        + CloseConnection()
+    }
+}
+
+package "External Systems" {
+    database Redis {
+    }
+
+    database Neo4j {
+    }
+
+    cloud AzureKeyVault {
+    }
+    
+    entity gRPC <<client>>{
+        + GetProfileImage(userId: string)
+    }
+    
+    queue RabbitMQ {
+    }
+    
+}
+
+RelationshipStorage <|-- Storage
+RelationshipStorage <|-- Neo4jStorage
+
+CacheStorage <|-- RedisCacheStorage
+ProfileService <|-- UserProfileService
+Consumer <|-- AmqConsumer
+
+Server --> RelationshipStorage
+Server --> CacheStorage
+Server --> ProfileService
+Server --> Consumer
+
+Neo4jStorage --> Neo4j
+AmqConsumer --> RabbitMQ
+Server --> AzureKeyVault
+RedisCacheStorage --> Redis
+UserProfileService --> gRPC
+@enduml

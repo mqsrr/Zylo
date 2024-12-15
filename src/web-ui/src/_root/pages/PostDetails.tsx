@@ -9,9 +9,11 @@ import {formatDistanceToNow} from "date-fns";
 import PostService from "@/services/PostService.ts";
 import {useAuthContext} from "@/hooks/useAuthContext.ts";
 import {Reply} from "@/models/Reply.ts";
+import {usePostContext} from "@/hooks/usePostContext.ts";
 
 const PostDetails = () => {
     const { id } = useParams<{ id: string }>();
+    const {getPostById, fetchPostById} = usePostContext();
     const { userId, accessToken } = useAuthContext();
     const [post, setPost] = useState<Post | null>(null);
     const [replies, setReplies] = useState<Reply[]>([]);
@@ -23,10 +25,10 @@ const PostDetails = () => {
         }
 
         const initializePost = async (): Promise<void> => {
-            console.log("Fetching post data")
-            const post = await PostService.getPost(id, userId, accessToken.value);
+            let post = getPostById(id)
             if (!post) {
-                return;
+                post = await fetchPostById(id);
+                if (!post) return;
             }
 
             setPost(post);
@@ -41,7 +43,7 @@ const PostDetails = () => {
         }
 
         initializePost().catch(console.error)
-    }, [id, userId, accessToken]);
+    }, [id, userId, accessToken, getPostById, fetchPostById]);
 
     const handleReplySubmit = (newReply: Reply) => {
         setReplies([newReply, ...replies]);
@@ -120,7 +122,7 @@ const PostDetails = () => {
                                 <ReplyItem
                                     reply={reply}
                                     postId={post.id}
-                                    level={1}
+                                    level={0}
                                     maxExpandLevel={3}
                                 />
                             </CardContent>

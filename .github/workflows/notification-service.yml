@@ -1,0 +1,32 @@
+name: "Build Notification Service"
+
+on:
+  push:
+    paths:
+      - 'notification-service/**'
+      - '.github/notification-service.yml'
+  pull_request:
+    paths:
+      - 'notification-service/**'
+      - '.github/notification-service.yml'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/notification-service
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.x'
+
+
+      - name: Restore dependencies
+        run: dotnet restore NotificationService/NotificationService.csproj
+
+      - name: Build
+        run: dotnet build NotificationService/NotificationService.csproj --no-restore --configuration Release

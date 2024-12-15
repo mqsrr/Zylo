@@ -1,5 +1,3 @@
-//go:build integration
-
 package testutil
 
 import (
@@ -9,7 +7,6 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/mq"
 	proto "github.com/mqsrr/zylo/social-graph/internal/protos/github.com/mqsrr/zylo/social-graph/proto/mocks"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
-	mocks "github.com/mqsrr/zylo/social-graph/internal/storage/mocks"
 	"github.com/testcontainers/testcontainers-go/modules/neo4j"
 	"github.com/testcontainers/testcontainers-go/modules/rabbitmq"
 	"github.com/testcontainers/testcontainers-go/modules/redis"
