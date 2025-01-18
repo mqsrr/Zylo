@@ -2,25 +2,25 @@
   "environment": "development",
 
   "server": {
-    "port": 8083
+    "port": 8080
   },
-
   "database": {
-    "uri": "postgresql://testUser:Pass1234!@localhost:5433/testDb"
+      "uri": "postgresql://testUser:Pass1234!@localhost:5433/testDb"
   },
   "redis": {
-    "uri": "redis://127.0.0.1/",
-    "backup_uri": "redis://127.0.0.1:6378/"
+    "uri": "redis://localhost/",
+    "backup_uri": "redis://localhost:6378/",
+    "expire_time": 3600
   },
   "auth": {
-    "issuer": "user-management",
-    "audience": "zylo-app",
-    "secret": "3"
+    "secret": "dev_secret",
+    "issuer": "dev_issuer",
+    "audience": "dev_audience"
   },
   "amq": {
-    "uri": "amqp://127.0.0.1:5672"
+    "uri": "amqp://localhost"
   },
-  "logger": {
-    "level": "info"
+  "grpc_server": {
+    "port": 50051
   }
 }

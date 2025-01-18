@@ -1,19 +1,34 @@
-﻿use chrono::{NaiveDateTime};
+﻿use crate::utils::request::ReplyResponse;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
-use crate::utils::request::ReplyResponse;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PostDeletedMessage {
-    #[serde(rename = "postId")]
-    pub post_id: Ulid,
+pub fn format_datetime(naive: NaiveDateTime) -> String {
+    naive.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct IdOnlyMessage {
+    pub id: Ulid,
+}
+
+impl From<Ulid> for IdOnlyMessage {
+    fn from(value: Ulid) -> Self {
+        Self { id: value }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct PostCreatedMessage {
-    #[serde(rename = "postId")]
-    pub post_id: Ulid,
+    pub id: Ulid,
+    #[serde(rename = "userId")]
+    pub user_id: Ulid,
 }
+
+pub type PostDeletedMessage = IdOnlyMessage;
+pub type UserCreatedMessage = IdOnlyMessage;
+pub type UserDeletedMessage = IdOnlyMessage;
+pub type ReplyDeletedMessage = IdOnlyMessage;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReplyCreatedMessage {
@@ -31,7 +46,7 @@ impl From<ReplyResponse> for ReplyCreatedMessage {
     fn from(value: ReplyResponse) -> Self {
         Self {
             id: value.id,
-            user_id: value.user.id,
+            user_id: value.user_id,
             reply_to_id: value.reply_to_id,
             content: value.content,
             created_at: value.created_at,
@@ -52,40 +67,7 @@ impl ReplyUpdatedMessage {
         Self {
             id,
             content,
-            updated_at: updated_at.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string(),
+            updated_at: format_datetime(updated_at),
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ReplyDeletedMessage {
-    pub id: Ulid,
-}
-
-impl ReplyDeletedMessage {
-    pub fn new(id: Ulid) -> Self {
-        Self {
-            id,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UserDeletedMessage {
-    pub id: Ulid,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UserCreatedMessage {
-    pub id: Ulid,
-    pub name: String,
-    pub username: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UserUpdatedMessage {
-    pub id: Ulid,
-    pub name: String,
-    pub bio: String,
-    pub location: String,
 }

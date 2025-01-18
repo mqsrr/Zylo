@@ -12,9 +12,3 @@ services:
     image: redis
     ports:
       - "6378:6379"
-  user-interaction:
-    image: mqsr/zylo/user-interaction:1.0.0
-    ports:
-      - "8081:8080"
-    env_file:
-      - .env

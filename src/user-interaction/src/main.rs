@@ -1,64 +1,96 @@
-use std::net::SocketAddr;
-use dotenv::dotenv;
-use log::{info};
-use tokio::net::TcpListener;
-use tokio::signal;
+use crate::app::run_app;
 use crate::models::app_state::AppState;
-use crate::services::key_vault::KeyVault;
-use crate::setting::AppConfig;
+use crate::observability::metrics::init_prometheus;
+use crate::observability::tracing::init_tracing;
+use crate::observability::{
+    ObservableCacheService, ObservableInteractionRepository, ObservableReplyRepository,
+    ObservableReplyServer,
+};
+use crate::repositories::interaction_repo::RedisInteractionRepository;
+use crate::repositories::reply_repo::PostgresReplyRepository;
+use crate::services::amq_client::{AmqClient, RabbitMqClient};
+use crate::services::backup_worker;
+use crate::services::cache_service::RedisCacheService;
+use crate::services::grpc_server::ReplyServer;
+use crate::settings::AppConfig;
+use dotenv::dotenv;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::trace::TracerProvider;
+use std::sync::Arc;
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
-mod models;
 mod app;
-mod setting;
-mod utils;
-mod routes;
-mod errors;
 mod auth;
+mod errors;
+mod models;
+mod observability;
+mod repositories;
+mod routes;
 mod services;
+mod settings;
+mod utils;
 
-#[tokio::main]
-async fn main() {
-    dotenv().ok();
-
-    let key_vault = KeyVault::new().await.unwrap_or_else(|e| panic!("{}", e));
-    let config = AppConfig::new(&key_vault).await;
-    let app_state = AppState::new(&config).await;
-
-    let address = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    let app = app::create_app(config, app_state.clone()).await;
-
-    let listener = TcpListener::bind(address).await.unwrap();
-    info!("Listening on: {}", address);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(app_state))
-        .await
-        .expect("Server could not start");
+fn init_trace(provider: &TracerProvider) {
+    let tracer = provider.tracer("tracing-jaeger");
+    tracing_subscriber::registry()
+        .with(OpenTelemetryLayer::new(tracer))
+        .with(fmt::layer().pretty())
+        .with(EnvFilter::from_default_env())
+        .init();
 }
 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
 
-async fn shutdown_signal(app_state: AppState) {
-    let ctrl_c = async {
-        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
-        println!("Ctrl+C received!");
-    };
+    let trace_provider = init_tracing();
+    let registry = init_prometheus();
 
-    #[cfg(unix)]
-    let terminate = async {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
-        sigterm.recv().await;
-        println!("SIGTERM received!");
-    };
+    init_trace(&trace_provider);
 
-    #[cfg(unix)]
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
+    let config = AppConfig::new().await;
+    let reply_repo = PostgresReplyRepository::new(&config.database).await?;
+    let reply_repo = Arc::new(ObservableReplyRepository::new(reply_repo, &registry)?);
 
-    #[cfg(not(unix))]
-    ctrl_c.await;
+    let cache_service = RedisCacheService::new(config.redis.clone())?;
+    let cache_service = Arc::new(ObservableCacheService::new(cache_service, &registry)?);
 
-    app_state.close().await;
-    println!("Shutdown complete.");
+    let interaction_repo = RedisInteractionRepository::new(cache_service.clone());
+    let interaction_repo = Arc::new(ObservableInteractionRepository::new(
+        interaction_repo,
+        &registry,
+    )?);
+
+    let amq_client = Arc::new(RabbitMqClient::new(&config.amq).await?);
+    amq_client
+        .setup_listeners(
+            reply_repo.clone(),
+            interaction_repo.clone(),
+            cache_service.clone(),
+        )
+        .await?;
+
+    let grpc_server = ReplyServer::new(
+        reply_repo.clone(),
+        interaction_repo.clone(),
+        cache_service.clone(),
+    );
+    let grpc_server = ObservableReplyServer::new(grpc_server, &registry)?;
+
+    backup_worker::start_worker(config.redis.clone()).await?;
+    let app = AppState::new(
+        reply_repo,
+        interaction_repo,
+        amq_client,
+        cache_service,
+        config,
+    );
+
+    run_app(app, grpc_server, registry).await?;
+    trace_provider.shutdown()?;
+
+    Ok(())
 }

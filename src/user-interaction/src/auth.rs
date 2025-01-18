@@ -5,7 +5,7 @@ use axum::response::IntoResponse;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use tokio::sync::OnceCell;
-use crate::setting::Auth;
+use crate::settings::Auth;
 
 #[allow(dead_code)]
 #[derive(Deserialize, Serialize)]

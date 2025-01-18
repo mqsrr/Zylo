@@ -3,5 +3,7 @@
   <component name="SqlDialectMappings">
     <file url="file://$PROJECT_DIR$/migrations/20240920160351_create_user_interactions.down.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/migrations/20240920160351_create_user_interactions.up.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/migrations/20241215233128_delete_user_table.down.sql" dialect="GenericSQL" />
+    <file url="PROJECT" dialect="PostgreSQL" />
   </component>
 </project>

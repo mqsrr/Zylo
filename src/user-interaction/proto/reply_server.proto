@@ -1,0 +1,58 @@
+﻿syntax = "proto3";
+
+package reply_server;
+
+message GrpcReply {
+  string id = 1;
+  string content = 2;
+  string user_id = 3;
+  string reply_to_id = 4;
+  int64 created_at = 5;
+  repeated GrpcReply nested_replies = 6;
+  int32 likes = 7;
+  int32 views = 8;
+  bool user_interacted = 9;
+}
+
+message GrpcPostInteraction {
+  string post_id = 1;
+  repeated GrpcReply replies = 2;
+  int32 likes = 3;
+  int32 views = 4;
+  bool user_interacted = 5;
+}
+
+message FetchReplyByIdRequest {
+  string id = 1;
+  string interaction_user_id = 2; 
+}
+
+message FetchReplyByIdResponse {
+  GrpcReply reply = 1;      
+}
+
+message FetchPostInteractionsResponse{
+  GrpcPostInteraction post_interaction = 1;
+}
+
+message FetchPostInteractionsRequest{
+  string post_id = 1;
+  string interaction_user_id = 2; 
+}
+
+message BatchFetchPostInteractionsRequest {
+  repeated string posts_ids = 1;
+  string interaction_user_id = 2;
+}
+
+message BatchFetchPostInteractionsResponse {
+  repeated GrpcPostInteraction posts_interactions = 1;
+}
+
+service GrpcReplyService {
+  rpc FetchReplyById(FetchReplyByIdRequest) returns (FetchReplyByIdResponse);
+  
+  rpc FetchPostInteractions(FetchPostInteractionsRequest) returns (FetchPostInteractionsResponse);
+
+  rpc BatchFetchPostInteractions(BatchFetchPostInteractionsRequest) returns (BatchFetchPostInteractionsResponse);
+}

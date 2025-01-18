@@ -1,4 +1,20 @@
 services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411"
+      - "4317:4317"
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: :9411
+      COLLECTOR_OTLP_ENABLED: true
+   
   user-management-postgres:
     image: postgres:16.0
     ports:
@@ -55,7 +71,7 @@ services:
       - NEO4J_AUTH=${FEED_NEO4J_AUTH}
 
   user-management:
-    image: mqsr/zylo/user-management:1.0.0
+    image: mqsr/zylo-user-management:1.0.0
     depends_on:
       - user-management-postgres
       - rabbitMq
@@ -69,7 +85,7 @@ services:
       - .env
 
   media-service:
-    image: mqsr/zylo/media-service:1.0.0
+    image: mqsr/zylo-media-service:1.0.0
     depends_on:
       - media-service-mongo
       - rabbitMq
@@ -80,7 +96,7 @@ services:
       - .env
 
   user-interaction:
-    image: mqsr/zylo/user-interaction:1.0.0
+    image: mqsr/zylo-user-interaction:2.0.0
     depends_on:
       - user-interaction-postgres
       - user-interaction-backup-redis
@@ -88,11 +104,13 @@ services:
       - redis
     ports:
       - '8083:8080'
+    environment:
+      "APP_ENV": "production"
     env_file:
       - .env
 
   social-graph:
-    image: mqsr/zylo/social-graph:1.0.0
+    image: mqsr/zylo-social-graph:1.0.0
     depends_on:
       - social-graph-neo4j
       - rabbitMq
@@ -106,7 +124,7 @@ services:
       - .env
 
   feed-service:
-    image: mqsr/zylo/feed-service:1.0.0
+    image: mqsr/zylo-feed-service:1.0.0
     depends_on:
       - feed-service-neo4j
       - rabbitMq
@@ -120,7 +138,7 @@ services:
       - .env
 
   notification-service:
-    image: mqsr/zylo/notification-service:1.0.0
+    image: mqsr/zylo-notification-service:1.0.0
     depends_on:
       - rabbitMq
       - redis
@@ -132,7 +150,7 @@ services:
       - .env
 
   api-gateway:
-    image: mqsr/zylo/api-gateway:1.0.0
+    image: mqsr/zylo-api-gateway:1.0.0
 #    depends_on:
 #      - user-management
 #      - user-interaction

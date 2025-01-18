@@ -3,8 +3,12 @@ use chrono::{TimeZone, Utc};
 use crate::models::reply::Reply;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
-use crate::errors::{AppError, Validate};
-use crate::models::user::{User, UserResponse};
+use crate::errors;
+use crate::services::grpc_server::reply_server::{FetchPostInteractionsResponse, GrpcPostInteraction, GrpcReply};
+
+pub trait Validate {
+    fn validate(&self) -> Result<(), errors::AppError>;
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PostInteractionResponse {
@@ -81,22 +85,24 @@ pub struct CreateReplyRequest {
     pub content: String,
 }
 
-impl From<CreateReplyRequest> for Reply {
-    fn from(value: CreateReplyRequest) -> Self {
+impl  Reply {
+    pub fn from_create(value: CreateReplyRequest, id: Ulid, root_id: Ulid, path: String) -> Self {
         Self {
-            id: Ulid::new(),
-            user: User::new(value.user_id),
+            id,
+            user_id: value.user_id,
             reply_to_id: value.reply_to_id,
             content: value.content,
-            created_at: Utc::now().naive_utc()
+            created_at: Utc::now().naive_utc(),
+            root_id,
+            path,
         }
     }
 }
 
 impl Validate for CreateReplyRequest {
-    fn validate(&self) -> Result<(), AppError> {
+    fn validate(&self) -> Result<(), errors::AppError> {
         if self.content.is_empty() {  
-            return Err(AppError::ValidationError("content can not be empty".to_string()))
+            return Err(errors::AppError::ValidationError("content can not be empty".to_string()))
         }
         
         Ok(())
@@ -112,7 +118,7 @@ pub struct UpdateReplyRequest {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReplyResponse {
     pub id: Ulid,
-    pub user: UserResponse,
+    pub user_id: Ulid,
     #[serde(rename="replyToId")]
     pub reply_to_id: Ulid,
     pub content: String,
@@ -130,7 +136,7 @@ impl From<Reply> for ReplyResponse {
     fn from(value: Reply) -> Self {
         Self {
             id: value.id,
-            user: UserResponse::from(value.user),
+            user_id: value.user_id,
             reply_to_id: value.reply_to_id,
             content: value.content,
             created_at: Utc.from_utc_datetime(&value.created_at).to_rfc3339(),
@@ -142,8 +148,47 @@ impl From<Reply> for ReplyResponse {
     }
 }
 
+impl From<ReplyResponse> for GrpcReply {
+    fn from(reply_response: ReplyResponse) -> Self {
+        Self {
+            id: reply_response.id.to_string(),
+            content: reply_response.content,
+            user_id: reply_response.user_id.to_string(),
+            reply_to_id: reply_response.reply_to_id.to_string(),
+            created_at: reply_response
+                .created_at
+                .parse::<i64>()
+                .unwrap_or(Utc::now().timestamp()),
+            nested_replies: reply_response
+                .nested_replies
+                .into_iter()
+                .map(GrpcReply::from)
+                .collect(),
+            likes: reply_response.likes,
+            views: reply_response.views,
+            user_interacted: reply_response.user_interacted.unwrap_or(false),
+        }
+    }
+}
+
+
+
+impl From<PostInteractionResponse> for FetchPostInteractionsResponse {
+    fn from(response: PostInteractionResponse) -> Self {
+        Self {
+            post_interaction: Some(GrpcPostInteraction {
+                post_id: response.post_id.to_string(),
+                replies: response.replies.into_iter().map(GrpcReply::from).collect(),
+                likes: response.likes,
+                views: response.views,
+                user_interacted: response.user_interacted.unwrap_or(false),
+            }),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PostDeleted {
+pub struct PostDeletedMessage {
     pub post_id: Ulid
 }
 

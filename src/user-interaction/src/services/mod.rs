@@ -1,6 +1,5 @@
-﻿pub mod amq;
+﻿pub mod amq_client;
 pub mod backup_worker;
-pub mod database;
 pub mod key_vault;
-pub mod redis;
-pub mod user_profile;
+pub mod grpc_server;
+pub mod cache_service;

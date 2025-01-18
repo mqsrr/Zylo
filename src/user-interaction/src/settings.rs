@@ -1,7 +1,7 @@
 use crate::services::key_vault::KeyVault;
-use crate::utils::constants::{EXPOSED_PORT, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_BACKUP_CONNECTION_STRING, REDIS_CONNECTION_STRING, REDIS_EXPIRE, USER_GRPC_SERVER};
+use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_BACKUP_CONNECTION_STRING, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
 use serde::Deserialize;
-use std::fmt;
+use std::fs;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Server {
@@ -14,11 +14,6 @@ impl Server {
             port: key_vault.get_secret(EXPOSED_PORT).await.unwrap().parse().unwrap(),
         }
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Logger {
-    pub level: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -83,13 +78,13 @@ impl RabbitMq {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GrpcServer {
-    pub uri: String,
+    pub port: u16,
 }
 
 impl GrpcServer {
    async fn from_key_vault(key_vault: &KeyVault) -> Self {
        Self {
-           uri: key_vault.get_secret(USER_GRPC_SERVER).await.unwrap()
+           port: key_vault.get_secret(GRPC_SERVER_ADDR).await.unwrap().parse().unwrap(),
        }
    } 
 }
@@ -97,7 +92,6 @@ impl GrpcServer {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub server: Server,
-    pub logger: Logger,
     pub database: Database,
     pub redis: Redis,
     pub auth: Auth,
@@ -106,21 +100,34 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub async fn new (key_vault: &KeyVault) -> Self {
-        Self{
+    pub async fn new() -> Self {
+        match std::env::var("APP_ENV"){
+            Ok(env) => {
+                if env == "production" {
+                    return AppConfig::from_key_vault(&KeyVault::new().await.unwrap()).await
+                }
+                
+                AppConfig::from_json("./config/development.json").await
+            }
+            Err(_) => {
+                AppConfig::from_json("./config/development.json").await
+            }
+        }
+    }
+    
+    async fn from_key_vault(key_vault: &KeyVault) -> Self {
+        Self {
             server: Server::from_key_vault(key_vault).await,
-            logger: Logger {level: "info".to_string()},
             database: Database::from_key_vault(key_vault).await,
             redis: Redis::from_key_vault(key_vault).await,
             auth: Auth::from_key_vault(key_vault).await,
             amq: RabbitMq::from_key_vault(key_vault).await,
-            grpc_server: GrpcServer::from_key_vault(key_vault).await,
+            grpc_server: GrpcServer::from_key_vault(key_vault).await
         }
     }
-}
 
-impl fmt::Display for Server {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "http://localhost:{}", &self.port)
+    async fn from_json(file: &str) -> Self {
+        let config_str = fs::read_to_string(file).expect("Failed to read config file");
+        serde_json::from_str(&config_str).expect("Invalid JSON configuration")
     }
 }
