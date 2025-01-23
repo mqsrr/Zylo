@@ -1,4 +1,3 @@
-use crate::errors::AppError;
 use crate::settings::Auth;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
@@ -6,6 +5,7 @@ use axum::response::IntoResponse;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use tokio::sync::OnceCell;
+use crate::errors;
 
 #[allow(dead_code)]
 #[derive(Deserialize, Serialize)]
@@ -23,13 +23,13 @@ pub async fn authorization_middleware(
     State(config): State<Auth>,
     req: Request,
     next: Next,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, errors::AppError> {
     let auth_token = req
         .headers()
         .get("Authorization")
-        .ok_or_else(|| AppError::BearerTokenNotFound)?
+        .ok_or_else(|| errors::AuthError::TokenNotFound)?
         .to_str()
-        .map_err(|_| AppError::BearerTokenNotFound)?;
+        .map_err(|_| errors::AuthError::TokenNotFound)?;
 
     let auth_token = auth_token.trim_start_matches("Bearer ").trim();
 
@@ -37,7 +37,7 @@ pub async fn authorization_middleware(
     Ok(next.run(req).await)
 }
 
-async fn authorize_user(auth_token: &str, auth_config: &Auth) -> Result<(), AppError> {
+async fn authorize_user(auth_token: &str, auth_config: &Auth) -> Result<(), errors::AppError> {
     let validation = VALIDATION
         .get_or_init(|| create_validation(auth_config))
         .await;
@@ -48,7 +48,7 @@ async fn authorize_user(auth_token: &str, auth_config: &Auth) -> Result<(), AppE
 
     decode::<Claims>(auth_token, decoding_key, validation)
         .ok()
-        .ok_or_else(|| AppError::InvalidBearerToken)?;
+        .ok_or_else(|| errors::AuthError::InvalidToken)?;
     Ok(())
 }
 

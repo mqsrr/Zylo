@@ -2,10 +2,30 @@
   "environment": "development",
 
   "server": {
-    "port": 8082
+    "port": 8080
   },
-
-  "logger": {
-    "level": "info"
+  "database": {
+    "uri": "mongodb://localhost:27017",
+    "name": "media-service"
+  },
+  "redis": {
+    "uri": "redis://localhost/",
+    "backup_uri": "redis://localhost:6378/",
+    "expire_time": 3600
+  },
+  "s3_config":{
+    "bucket_name": "test",
+    "expire_time": 3600
+  },
+  "auth": {
+    "secret": "dev_secret",
+    "issuer": "dev_issuer",
+    "audience": "dev_audience"
+  },
+  "amq": {
+    "uri": "amqp://localhost"
+  },
+  "grpc_server": {
+    "port": 50051
   }
 }

@@ -1,10 +1,11 @@
-use crate::errors::AppError;
-use crate::models::event_messages::{UserCreatedMessage, UserDeletedMessage, UserUpdatedMessage};
-use crate::models::post::Post;
-use crate::models::user::User;
-use crate::services::redis;
+use crate::errors;
+use crate::models::event_messages::{UserCreatedMessage, UserDeletedMessage};
+use crate::repositories::post_repo::PostRepository;
+use crate::repositories::user_repo::UserRepository;
 use crate::settings::RabbitMq;
 use crate::utils::constants::{POST_EXCHANGE_NAME, USER_EXCHANGE_NAME};
+use crate::utils::helpers::Finalizer;
+use async_trait::async_trait;
 use futures_util::Future;
 use futures_util::StreamExt;
 use lapin::options::{
@@ -13,233 +14,328 @@ use lapin::options::{
 };
 use lapin::types::FieldTable;
 use lapin::{BasicProperties, Channel, Connection, ConnectionProperties};
-use log::warn;
-use mongodb::Database;
 use serde::Serialize;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::log::{error, info};
 
-use super::s3::S3FileService;
+#[async_trait]
+pub trait AmqClient: Send + Sync + Finalizer {
+    async fn declare_exchanges(&self) -> Result<(), errors::AmqError>;
+    async fn declare_queues(&self) -> Result<(), errors::AmqError>;
 
-pub async fn open_amq_connection(config: &RabbitMq) -> Channel {
-    let connection = Connection::connect(&config.uri, ConnectionProperties::default())
-        .await
-        .unwrap();
-    let channel = connection.create_channel().await.unwrap();
+    async fn publish_event<T: Serialize + Send + Sync>(
+        &self,
+        exchange_name: &str,
+        routing_key: &str,
+        event: &T,
+    ) -> Result<(), errors::AmqError>;
 
-    declare_exchanges(&channel).await.unwrap();
-    declare_queues(&channel).await.unwrap();
-
-    channel
+    async fn setup_listeners<
+        U: UserRepository + 'static,
+        P: PostRepository + 'static
+    >(
+        &self,
+        user_repo: Arc<U>,
+        post_repo: Arc<P>,
+    ) -> Result<(), errors::AppError>;
 }
 
-async fn declare_exchanges(channel: &Channel) -> Result<(), AppError> {
-    let exchange_options = ExchangeDeclareOptions {
-        durable: true,
-        ..Default::default()
-    };
+#[async_trait]
+pub trait AmqConsumer: Send + Sync {
+    async fn consume_user_created<U: UserRepository + 'static>(
+        &self,
+        user_repo: Arc<U>,
+    ) -> Result<(), errors::AppError>;
 
-    channel
-        .exchange_declare(
-            POST_EXCHANGE_NAME,
-            lapin::ExchangeKind::Direct,
-            exchange_options,
-            FieldTable::default(),
-        )
-        .await?;
-    channel
-        .exchange_declare(
-            USER_EXCHANGE_NAME,
-            lapin::ExchangeKind::Direct,
-            exchange_options,
-            FieldTable::default(),
-        )
-        .await?;
-
-    Ok(())
+    async fn consume_user_deleted<
+        U: UserRepository + 'static,
+        P: PostRepository + 'static,
+    >(
+        &self,
+        user_repo: Arc<U>,
+        post_repo: Arc<P>
+    ) -> Result<(), errors::AppError>;
 }
 
-async fn declare_queues(channel: &Channel) -> Result<(), AppError> {
-    let queue_options = QueueDeclareOptions {
-        durable: true,
-        ..Default::default()
-    };
-    let queue_map = vec![
-        (
-            "user-created-media-service-queue",
-            USER_EXCHANGE_NAME,
-            "user.created",
-        ),
-        (
-            "user-updated-media-service-queue",
-            USER_EXCHANGE_NAME,
-            "user.updated",
-        ),
-        (
-            "user-deleted-media-service-queue",
-            USER_EXCHANGE_NAME,
-            "user.deleted",
-        ),
-    ];
+pub struct RabbitMqClient {
+    connection: Connection,
+    consumer_channels: Arc<Mutex<Vec<Channel>>>,
+    publish_channel: Arc<Channel>,
+}
 
-    for (queue_name, exchange_name, routing_key) in queue_map {
-        channel
-            .queue_declare(queue_name, queue_options, FieldTable::default())
+impl RabbitMqClient {
+    pub async fn new(config: &RabbitMq) -> Result<Self, errors::AmqError> {
+        let connection = Connection::connect(&config.uri, ConnectionProperties::default()).await?;
+        let publish_channel = connection.create_channel().await?;
+
+        Ok(Self {
+            connection,
+            consumer_channels: Arc::new(Mutex::new(Vec::new())),
+            publish_channel: Arc::new(publish_channel),
+        })
+    }
+
+    pub async fn new_channel(&self) -> Result<Channel, errors::AmqError> {
+        let channel = self.connection.create_channel().await?;
+        self.consumer_channels.lock().await.push(channel.clone());
+
+        Ok(channel)
+    }
+
+    async fn consume_event<T, F, Fut>(
+        &self,
+        queue_name: String,
+        handler: F,
+    ) -> Result<(), errors::AppError>
+    where
+        T: for<'de> serde::Deserialize<'de> + Send + 'static,
+        F: Fn(T) -> Fut + Send + 'static + Clone,
+        Fut: Future<Output = Result<(), errors::AppError>> + Send + 'static,
+    {
+        let channel = self.new_channel().await?;
+        let mut consumer = channel
+            .basic_consume(
+                &queue_name,
+                &format!("{}-consumer", queue_name),
+                BasicConsumeOptions::default(),
+                FieldTable::default(),
+            )
+            .await
+            .map_err(errors::AmqError::ConnectionError)?;
+
+        tokio::spawn(async move {
+            while let Some(delivery_result) = consumer.next().await {
+                match delivery_result {
+                    Ok(delivery) => {
+                        let event: T = match serde_json::from_slice(&delivery.data) {
+                            Ok(event) => event,
+                            Err(err) => {
+                                error!(
+                                    "Failed to deserialize message from {}: {}",
+                                    queue_name, err
+                                );
+                                continue;
+                            }
+                        };
+
+                        if let Err(err) = handler(event).await {
+                            error!("{:?}", err);
+                        }
+
+                        if let Err(err) = delivery.ack(BasicAckOptions::default()).await {
+                            error!(
+                                "Failed to acknowledge message from {}: {:?}",
+                                queue_name, err
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        error!("Failed to consume message from {}: {:?}", queue_name, err);
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn handle_user_created<U: UserRepository + 'static>(
+        event: UserCreatedMessage,
+        user_repo: Arc<U>,
+    ) -> Result<(), errors::AppError> {
+        user_repo.create(&event.id).await
+    }
+
+    async fn handle_user_deleted<U: UserRepository + 'static, P: PostRepository + 'static>(
+        event: UserDeletedMessage,
+        user_repo: Arc<U>,
+        post_repo: Arc<P>,
+    ) -> Result<(), errors::AppError> {
+        let user_id = event.id;
+        let mut session = user_repo.start_session().await?;
+
+        session.start_transaction().await.map_err(|_| {
+            errors::AppError::Internal("Could not start mongo transaction!".to_string())
+        })?;
+
+        post_repo
+            .delete_all_from_user(&user_id, &mut session)
             .await?;
-        channel
-            .queue_bind(
-                queue_name,
-                exchange_name,
-                routing_key,
-                QueueBindOptions::default(),
+
+        user_repo.delete(&user_id, &mut session).await?;
+        session.commit_transaction().await.map_err(|_| {
+            errors::AppError::Internal("Could not delete all data about user".to_string())
+        })?;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl AmqClient for RabbitMqClient {
+    async fn declare_exchanges(&self) -> Result<(), errors::AmqError> {
+        let exchange_options = ExchangeDeclareOptions {
+            durable: true,
+            ..Default::default()
+        };
+
+        self.publish_channel
+            .exchange_declare(
+                POST_EXCHANGE_NAME,
+                lapin::ExchangeKind::Direct,
+                exchange_options,
                 FieldTable::default(),
             )
             .await?;
+
+        self.publish_channel
+            .exchange_declare(
+                USER_EXCHANGE_NAME,
+                lapin::ExchangeKind::Direct,
+                exchange_options,
+                FieldTable::default(),
+            )
+            .await?;
+
+        Ok(())
     }
 
-    Ok(())
+    async fn declare_queues(&self) -> Result<(), errors::AmqError> {
+        let queue_options = QueueDeclareOptions {
+            durable: true,
+            ..Default::default()
+        };
+        let queue_map = vec![
+            (
+                "user-created-media-service-queue",
+                USER_EXCHANGE_NAME,
+                "user.created",
+            ),
+            (
+                "user-deleted-media-service-queue",
+                USER_EXCHANGE_NAME,
+                "user.deleted",
+            ),
+        ];
+
+        for (queue_name, exchange_name, routing_key) in queue_map {
+            self.publish_channel
+                .queue_declare(queue_name, queue_options, FieldTable::default())
+                .await?;
+
+            self.publish_channel
+                .queue_bind(
+                    queue_name,
+                    exchange_name,
+                    routing_key,
+                    QueueBindOptions::default(),
+                    FieldTable::default(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn publish_event<T: Serialize + Sync + Send>(
+        &self,
+        exchange_name: &str,
+        routing_key: &str,
+        event: &T,
+    ) -> Result<(), errors::AmqError> {
+        let message = serde_json::to_string(event).map_err(errors::AmqError::DeserializeError)?;
+        self.publish_channel
+            .basic_publish(
+                exchange_name,
+                routing_key,
+                BasicPublishOptions::default(),
+                message.as_bytes(),
+                BasicProperties::default(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn setup_listeners<U: UserRepository + 'static, P: PostRepository + 'static>(
+        &self,
+        user_repo: Arc<U>,
+        post_repo: Arc<P>,
+    ) -> Result<(), errors::AppError> {
+        self.declare_exchanges().await?;
+        self.declare_queues().await?;
+
+        self.consume_user_created(user_repo.clone()).await?;
+        self.consume_user_deleted(user_repo, post_repo).await
+    }
 }
 
-pub async fn publish_event<T: Serialize>(
-    channel: &Channel,
-    exchange_name: &str,
-    routing_key: &str,
-    event: &T,
-) -> Result<(), AppError> {
-    let message = serde_json::to_string(event).unwrap();
-    channel
-        .basic_publish(
-            exchange_name,
-            routing_key,
-            BasicPublishOptions::default(),
-            message.as_bytes(),
-            BasicProperties::default(),
+#[async_trait]
+impl AmqConsumer for RabbitMqClient {
+    async fn consume_user_created<U: UserRepository + 'static>(
+        &self,
+        user_repo: Arc<U>,
+    ) -> Result<(), errors::AppError> {
+        self.consume_event(
+            "user-created-media-service-queue".to_string(),
+            move |event: UserCreatedMessage| {
+                Box::pin({
+                    let user_repo = user_repo.clone();
+                    async move { RabbitMqClient::handle_user_created(event, user_repo).await }
+                })
+            },
         )
-        .await?
-        .await?;
+        .await
+    }
 
-    Ok(())
-}
-
-pub async fn consume_user_created(channel: &Channel, db: Database) -> Result<(), AppError> {
-    consume_event(
-        channel,
-        "user-created-media-service-queue".to_string(),
-        move |event: UserCreatedMessage| {
-            let db = db.clone();
-            Box::pin(async move { handle_user_created(event, db).await })
-        },
-    )
-    .await
-}
-
-async fn handle_user_created(event: UserCreatedMessage, db: Database) -> Result<(), AppError> {
-    User::create(event, &db).await?;
-    Ok(())
-}
-
-pub async fn consume_user_deleted(
-    channel: &Channel,
-    db: Database,
-    s3file_service: S3FileService,
-) -> Result<(), AppError> {
-    consume_event(
-        channel,
-        "user-deleted-media-service-queue".to_string(),
-        move |event: UserDeletedMessage| {
-            let db = db.clone();
-            let s3file_service = s3file_service.clone();
-            Box::pin(async move { handle_user_deleted(event, db, s3file_service).await })
-        },
-    )
-    .await
-}
-
-async fn handle_user_deleted(
-    event: UserDeletedMessage,
-    db: Database,
-    s3file_service: S3FileService,
-) -> Result<(), AppError> {
-    Post::delete_all_from_user(event.id, &db, &s3file_service).await?;
-    User::delete(event, &db).await?;
-
-    Ok(())
-}
-
-pub async fn consume_user_updated(
-    channel: &Channel,
-    db: Database,
-    redis: ::redis::Client,
-) -> Result<(), AppError> {
-    consume_event(
-        channel,
-        "user-updated-media-service-queue".to_string(),
-        move |event: UserUpdatedMessage| {
-            let redis = redis.clone();
-            let db = db.clone();
-            Box::pin(async move { handle_user_updated(event, db, redis).await })
-        },
-    )
-    .await
-}
-
-async fn handle_user_updated(
-    event: UserUpdatedMessage,
-    db: Database,
-    redis: ::redis::Client,
-) -> Result<(), AppError> {
-    redis::hash_delete(&redis, "media", &event.id.to_string()).await?;
-    User::update(event, &db).await?;
-
-    Ok(())
-}
-
-async fn consume_event<T, F, Fut>(
-    channel: &Channel,
-    queue_name: String,
-    handler: F,
-) -> Result<(), AppError>
-where
-    T: for<'de> serde::Deserialize<'de> + Send + 'static,
-    F: Fn(T) -> Fut + Send + 'static + Clone,
-    Fut: Future<Output = Result<(), AppError>> + Send + 'static,
-{
-    let mut consumer = channel
-        .basic_consume(
-            &queue_name,
-            &format!("{}-consumer", queue_name),
-            BasicConsumeOptions::default(),
-            FieldTable::default(),
+    async fn consume_user_deleted<U: UserRepository + 'static, P: PostRepository + 'static>(
+        &self,
+        user_repo: Arc<U>,
+        post_repo: Arc<P>,
+    ) -> Result<(), errors::AppError> {
+        self.consume_event(
+            "user-deleted-user-interaction-queue".to_string(),
+            move |event: UserDeletedMessage| {
+                Box::pin({
+                    let user_repo = user_repo.clone();
+                    let post_repo = post_repo.clone();
+                    async move {
+                        RabbitMqClient::handle_user_deleted(
+                            event,
+                            user_repo,
+                            post_repo,
+                        )
+                        .await
+                    }
+                })
+            },
         )
-        .await?;
+        .await
+    }
+}
 
-    tokio::spawn(async move {
-        while let Some(delivery_result) = consumer.next().await {
-            match delivery_result {
-                Ok(delivery) => {
-                    let event: T = match serde_json::from_slice(&delivery.data) {
-                        Ok(event) => event,
-                        Err(err) => {
-                            warn!("Failed to deserialize message from {}: {}", queue_name, err);
-                            continue;
-                        }
-                    };
+#[async_trait]
+impl Finalizer for RabbitMqClient {
+    async fn finalize(&self) -> Result<(), errors::AppError> {
+        info!("Closing RabbitMQ client connection...");
 
-                    if let Err(err) = handler(event).await {
-                        warn!("Failed to handle message from {}: {:?}", queue_name, err);
-                    }
-
-                    if let Err(err) = delivery.ack(BasicAckOptions::default()).await {
-                        warn!(
-                            "Failed to acknowledge message from {}: {:?}",
-                            queue_name, err
-                        );
-                    }
-                }
-                Err(err) => {
-                    warn!("Failed to consume message from {}: {:?}", queue_name, err);
-                }
+        let mut channels = self.consumer_channels.lock().await;
+        for channel in channels.drain(..) {
+            if let Err(e) = channel.close(200, "Shutting down").await {
+                error!("Failed to close consumer channel: {:?}", e);
             }
         }
-    });
 
-    Ok(())
+        if let Err(e) = self.publish_channel.close(200, "Shutting down").await {
+            error!("Failed to close publish channel: {:?}", e);
+        }
+
+        if let Err(e) = self.connection.close(200, "Shutting down").await {
+            error!("Failed to close connection: {:?}", e);
+        }
+
+        info!("RabbitMQ client connection closed");
+        Ok(())
+    }
 }

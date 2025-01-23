@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package post_server;
+
+service PostService {
+  rpc GetPostById (PostRequest) returns (PostResponse);
+  rpc GetUsersPosts (PostsRequest) returns (PaginatedPostsResponse);
+  rpc GetBatchPosts (BatchPostsRequest) returns (PostsResponse);
+}
+
+message PostRequest {
+  string post_id = 1;
+}
+
+message PostsRequest {
+  string user_id = 1;
+  uint32 per_page = 2;
+  optional string last_post_id = 3;
+}
+
+message BatchPostsRequest {
+  repeated string post_ids = 1;
+}
+
+message PostResponse {
+  string id = 1;
+  string user_id = 2;
+  string text = 3;
+  repeated FileMetadataResponse files_metadata = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message PostsResponse {
+  repeated PostResponse posts = 1;
+}
+
+message PaginatedPostsResponse {
+  repeated PostResponse posts = 1;
+  bool has_next_page = 2;
+  uint32 per_page = 3;
+  string next_cursor = 4;
+}
+
+message FileMetadataResponse {
+  string file_name = 2;
+  string content_type = 3;
+  string url = 4;
+}

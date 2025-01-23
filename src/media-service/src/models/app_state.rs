@@ -1,54 +1,68 @@
-use crate::services::s3::S3FileService;
-use crate::services::user_profile::user_profile::user_profile_service_client::UserProfileServiceClient;
-use crate::services::user_profile::UserProfileService;
-use crate::services::{amq, database, redis, s3};
-use crate::settings::{self, AppConfig};
+use crate::errors;
+use crate::repositories::post_repo::PostRepository;
+use crate::repositories::user_repo::UserRepository;
+use crate::services::amq::AmqClient;
+use crate::services::cache_service::CacheService;
+use crate::settings::AppConfig;
+use std::sync::Arc;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub db: mongodb::Database,
-    pub redis: ::redis::Client,
-    pub s3file_service: S3FileService,
-    pub user_profile_service: UserProfileService,
-    pub amq: lapin::Channel,
+pub struct AppState<P, U, C, A>
+where
+    P: PostRepository + 'static,
+    U: UserRepository + 'static,
+    C: CacheService + 'static,
+    A: AmqClient + 'static,
+{
+    pub post_repo: Arc<P>,
+    pub user_repo: Arc<U>,
+    pub cache_service: Arc<C>,
+    pub amq_client: Arc<A>,
     pub config: AppConfig,
 }
 
-impl AppState {
-    pub async fn new(config: &AppConfig) -> Self {
-        let db = database::init_db(&config.database).await;
-        let redis = redis::create_client(&config.redis).await;
-        let amq = amq::open_amq_connection(&config.amq).await;
-
-        let s3_client = s3::init_s3_client().await.unwrap();
-        let s3_service = s3::S3FileService::new(s3_client, config.s3_config.clone());
-
-        let user_profile = UserProfileService::new(
-            redis.clone(),
-            UserProfileServiceClient::connect(config.grpc_server.uri.clone())
-                .await
-                .unwrap(),
-        );
-
-        amq::consume_user_created(&amq, db.clone())
-            .await
-            .expect("Error configuring user created consumer");
-
-        amq::consume_user_deleted(&amq, db.clone(), s3_service.clone())
-            .await
-            .expect("Error configuring user deleted consumer");
-
-        amq::consume_user_updated(&amq, db.clone(), redis.clone())
-            .await
-            .expect("Error configuring user updated consumer");
-
+impl<P, U, C, A> Clone for AppState<P, U, C, A>
+where
+    P: PostRepository + 'static,
+    U: UserRepository + 'static,
+    C: CacheService + 'static,
+    A: AmqClient + 'static,
+{
+    fn clone(&self) -> Self {
         Self {
-            db,
-            redis,
-            user_profile_service: user_profile,
-            s3file_service: s3_service,
-            amq,
-            config: config.clone(),
+            post_repo: self.post_repo.clone(),
+            user_repo: self.user_repo.clone(),
+            cache_service: self.cache_service.clone(),
+            amq_client: self.amq_client.clone(),
+            config: self.config.clone(),
         }
+    }
+}
+
+impl<P, U, C, A> AppState<P, U, C, A>
+where
+    P: PostRepository + 'static,
+    U: UserRepository + 'static,
+    C: CacheService + 'static,
+    A: AmqClient + 'static,
+{
+    pub async fn new(
+        post_repo: Arc<P>,
+        user_repo: Arc<U>,
+        cache_service: Arc<C>,
+        amq_client: Arc<A>,
+        config: AppConfig,
+    ) -> Self {
+        Self {
+            post_repo,
+            user_repo,
+            cache_service,
+            amq_client,
+            config,
+        }
+    }
+
+    pub async fn close(&self) -> Result<(), errors::AppError> {
+        self.amq_client.finalize().await?;
+        Ok(())
     }
 }

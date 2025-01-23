@@ -1,7 +1,7 @@
-use crate::errors::AppError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
+use crate::errors;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AzureTokenResponse {
@@ -21,7 +21,7 @@ pub struct KeyVault {
 }
 
 impl KeyVault {
-    pub async fn new() -> Result<Self, AppError> {
+    pub async fn new() -> Result<Self, errors::AppError> {
         let client_id = env::var("AZURE_CLIENT_ID")?;
         let tenant_id = env::var("AZURE_TENANT_ID")?;
         let client_secret = env::var("AZURE_CLIENT_SECRET")?;
@@ -53,7 +53,7 @@ impl KeyVault {
         })
     }
 
-    pub async fn get_secret(&self, secret_name: &str) -> Result<String, AppError> {
+    pub async fn get_secret(&self, secret_name: &str) -> Result<String, errors::AppError> {
         let vault_url = env::var("AZURE_KEY_VAULT_URL")?;
         let secret_url = format!("{}/secrets/{}?api-version=7.4", vault_url, secret_name);
 

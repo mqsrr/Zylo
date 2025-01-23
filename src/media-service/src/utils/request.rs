@@ -1,24 +1,25 @@
-use crate::errors::{AppError, Validate};
 use crate::models::file::File;
-use crate::models::post::{Post, PostResponse};
-use crate::models::user::User;
 use async_trait::async_trait;
 use axum::extract::{FromRequest, Multipart, Request};
-use log::warn;
 use serde::{Deserialize, Serialize};
+use tracing::log::warn;
 use ulid::Ulid;
+use crate::errors;
 
 #[async_trait]
 pub trait ConstructableRequest {
-    async fn parse<S: Send + Sync>(request: Request, state: &S) -> Result<Self, AppError>
+    async fn parse<S: Send + Sync>(request: Request, state: &S) -> Result<Self, errors::AppError>
     where
         Self: Sized;
+}
+pub trait Validate {
+    fn validate(&self) -> Result<(), errors::ValidationError>;
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PaginationParams {
     #[serde(rename = "lastCreatedAt")]
-    pub last_created_at: Option<String>,
+    pub last_post_id: Option<Ulid>,
     #[serde(rename = "pageSize")]
     pub per_page: Option<u16>,
 }
@@ -43,57 +44,42 @@ impl<T> PaginatedResponse<T> {
             next_cursor,
         }
     }
-}
-
-impl PaginatedResponse<PostResponse> {
-    pub fn from_posts(value: Vec<Post>, user: User, per_page: Option<u16>) -> Self {
-        let post_responses: Vec<PostResponse> = value.into_iter().map(|post| PostResponse::from(post, user.clone())).collect();
-        let per_page = per_page.unwrap_or(10);
-
-        let has_next_page = post_responses.len() == per_page as usize;
-        let next_cursor = post_responses
-            .last()
-            .map(|post| post.created_at.clone())
-            .unwrap_or_default();
-
-        Self {
-            data: post_responses,
-            per_page,
-            has_next_page,
-            next_cursor,
+    pub fn from_page<F, U>(paginated_response: PaginatedResponse<T>, f: F) -> PaginatedResponse<U>
+    where
+        F: Fn(T) -> U
+    {
+        PaginatedResponse::<U> {
+            data: paginated_response.data.into_iter().map(f).collect(),
+            per_page: paginated_response.per_page,
+            has_next_page: paginated_response.has_next_page,
+            next_cursor: paginated_response.next_cursor,
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePostRequest {
-    pub id: Ulid,
     pub user_id: Ulid,
     pub text: String,
     pub files: Vec<File>,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 impl CreatePostRequest {
     pub fn new(user_id: Ulid) -> Self {
         Self {
-            id: Ulid::new(),
             user_id,
             text: String::new(),
             files: Vec::new(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
         }
     }
 
-    pub async fn from_multipart(mut multipart: Multipart, user_id: Ulid) -> Result<Self, AppError> {
+    pub async fn from_multipart(mut multipart: Multipart, user_id: Ulid) -> Result<Self, errors::AppError> {
         let mut request = Self::new(user_id);
 
         while let Some(field) = multipart
             .next_field()
             .await
-            .map_err(|_| AppError::InvalidMultipartContent)?
+            .map_err(|_| errors::AppError::BadRequest("Invalid multipart data".to_string()))?
         {
             match field.name() {
                 Some("text") => request.text = field.text().await.unwrap_or_default(),
@@ -108,56 +94,73 @@ impl CreatePostRequest {
     }
 }
 
-#[async_trait]
-impl ConstructableRequest for CreatePostRequest {
-    async fn parse<S: Send + Sync>(req: Request, state: &S) -> Result<Self, AppError>
-    where
-        Self: Sized,
-    {
-        let user_id = extract_user_id(&req)?;
-        let multipart = Multipart::from_request(req, &state)
-            .await
-            .map_err(|_| AppError::InvalidMultipartContent)?;
-
-        CreatePostRequest::from_multipart(multipart, user_id).await
+impl Validate for CreatePostRequest {
+    fn validate(&self) -> Result<(), errors::ValidationError> {
+   
+        if self.user_id.is_nil() {
+            return Err(errors::ValidationError::Failed("User id cannot be empty".to_string()));
+        }
+        
+        if self.text.trim().is_empty() {
+            return Err(errors::ValidationError::Failed("Post context cannot be empty".to_string()));
+        }
+        
+        Ok(())
     }
 }
-fn extract_user_id(req: &Request) -> Result<Ulid, AppError> {
-    let uri_path = req.uri().path();
-    let user_id_str = uri_path
-        .split('/')
-        .nth(3)
-        .ok_or_else(|| AppError::InvalidUri("Could not find user id".to_string()))?;
 
-    Ulid::from_string(user_id_str).map_err(|_| AppError::InvalidUserId)
-}
+impl Validate for UpdatePostRequest {
+    fn validate(&self) -> Result<(), errors::ValidationError> {
 
-fn extract_post_id(req: &Request) -> Result<Ulid, AppError> {
-    let uri_path = req.uri().path();
-    let post_id_str = uri_path
-        .split('/')
-        .nth(5)
-        .ok_or_else(|| AppError::InvalidUri("Could not find post id".to_string()))?;
+        if self.id.is_nil() {
+            return Err(errors::ValidationError::Failed("Post id cannot be empty".to_string()));
+        }
 
-    Ulid::from_string(post_id_str).map_err(|_| AppError::InvalidPostId)
-}
-
-impl Validate for CreatePostRequest {
-    fn validate(&self) -> Result<(), AppError> {
         if self.text.trim().is_empty() {
-            return Err(AppError::ValidationError(
-                "Text field is required.".to_string(),
-            ));
+            return Err(errors::ValidationError::Failed("Post context cannot be empty".to_string()));
         }
 
         Ok(())
     }
 }
 
+#[async_trait]
+impl ConstructableRequest for CreatePostRequest {
+    async fn parse<S: Send + Sync>(req: Request, state: &S) -> Result<Self, errors::AppError>
+    where
+        Self: Sized,
+    {
+        let user_id = extract_user_id(&req)?;
+        let multipart = Multipart::from_request(req, &state)
+            .await
+            .map_err(|_| errors::ValidationError::InvalidUserId)?;
+
+        CreatePostRequest::from_multipart(multipart, user_id).await
+    }
+}
+fn extract_user_id(req: &Request) -> Result<Ulid, errors::AppError> {
+    let uri_path = req.uri().path();
+    let user_id_str = uri_path
+        .split('/')
+        .nth(3)
+        .ok_or_else(|| errors::ValidationError::InvalidUri("Could not find user id".to_string()))?;
+
+    Ulid::from_string(user_id_str).map_err(|_| errors::ValidationError::InvalidUserId.into())
+}
+
+fn extract_post_id(req: &Request) -> Result<Ulid, errors::AppError> {
+    let uri_path = req.uri().path();
+    let post_id_str = uri_path
+        .split('/')
+        .nth(5)
+        .ok_or_else(|| errors::ValidationError::InvalidUri("Could not find post id".to_string()))?;
+
+    Ulid::from_string(post_id_str).map_err(|_| errors::ValidationError::InvalidPostId.into())
+}
+
 #[derive(Debug, Clone)]
 pub struct UpdatePostRequest {
     pub id: Ulid,
-    pub user_id: Ulid,
     pub text: String,
     pub files: Vec<File>,
 }
@@ -165,12 +168,10 @@ pub struct UpdatePostRequest {
 impl UpdatePostRequest {
     pub async fn from_multipart(
         mut multipart: Multipart,
-        user_id: Ulid,
         post_id: Ulid,
-    ) -> Result<Self, AppError> {
+    ) -> Result<Self, errors::AppError> {
         let mut request = Self {
             id: post_id,
-            user_id,
             text: String::new(),
             files: Vec::new(),
         };
@@ -178,7 +179,7 @@ impl UpdatePostRequest {
         while let Some(field) = multipart
             .next_field()
             .await
-            .map_err(|_| AppError::InvalidMultipartContent)?
+            .map_err(|_| errors::ValidationError::Failed("Invalid multipart data".to_string()))?
         {
             match field.name() {
                 Some("text") => request.text = field.text().await.unwrap_or_default(),
@@ -195,28 +196,15 @@ impl UpdatePostRequest {
 
 #[async_trait]
 impl ConstructableRequest for UpdatePostRequest {
-    async fn parse<S: Send + Sync>(req: Request, state: &S) -> Result<Self, AppError>
+    async fn parse<S: Send + Sync>(req: Request, state: &S) -> Result<Self, errors::AppError>
     where
         Self: Sized,
     {
-        let user_id = extract_user_id(&req)?;
         let post_id = extract_post_id(&req)?;
         let multipart = Multipart::from_request(req, &state)
             .await
-            .map_err(|_| AppError::InvalidMultipartContent)?;
+            .map_err(|_| errors::ValidationError::Failed("Invalid multipart data".to_string()))?;
 
-        UpdatePostRequest::from_multipart(multipart, user_id, post_id).await
-    }
-}
-
-impl Validate for UpdatePostRequest {
-    fn validate(&self) -> Result<(), AppError> {
-        if self.text.trim().is_empty() {
-            return Err(AppError::ValidationError(
-                "Text field is required.".to_string(),
-            ));
-        }
-
-        Ok(())
+        UpdatePostRequest::from_multipart(multipart, post_id).await
     }
 }

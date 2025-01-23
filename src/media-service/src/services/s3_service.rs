@@ -1,5 +1,5 @@
-use crate::errors::AppError;
-use crate::models::file::{File, PresignedUrl};
+use crate::errors;
+use crate::models::file::{File, FileMetadata, PresignedUrl};
 use crate::settings::S3Settings;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
@@ -10,10 +10,10 @@ use std::ops::Add;
 use std::time::Duration;
 
 #[async_trait]
-pub trait S3Service {
-    async fn upload(&self, file: &File) -> Result<PresignedUrl, AppError>;
-    async fn delete(&self, key: &str) -> Result<(), AppError>;
-    async fn get_presigned_url_for_download(&self, key: &str) -> Result<PresignedUrl, AppError>;
+pub trait S3Service: Send + Sync {
+    async fn upload(&self, file: File) -> Result<FileMetadata, errors::S3Error>;
+    async fn delete(&self, key: &str) -> Result<(), errors::S3Error>;
+    async fn get_presigned_url(&self, key: &str) -> Result<PresignedUrl, errors::S3Error>;
 }
 
 #[derive(Clone)]
@@ -23,14 +23,17 @@ pub struct S3FileService {
 }
 
 impl S3FileService {
-    pub fn new(client: Client, settings: S3Settings) -> Self {
+    pub async fn new(settings: S3Settings) -> Self {
+        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+        let client = Client::new(&config);
+        
         Self { client, settings }
     }
 }
 
 #[async_trait]
 impl S3Service for S3FileService {
-    async fn upload(&self, file: &File) -> Result<PresignedUrl, AppError> {
+    async fn upload(&self, file: File) -> Result<FileMetadata, errors::S3Error> {
         let byte_stream = ByteStream::from(file.content.clone());
         let key = &format!("media_images/{}", &file.id);
         self.client
@@ -44,11 +47,17 @@ impl S3Service for S3FileService {
             .await
             .map_err(|e| e.into_service_error())?;
 
-        let url = self.get_presigned_url_for_download(key).await?;
-        Ok(url)
+        let url = self.get_presigned_url(key).await?;
+        
+        Ok(FileMetadata {
+            id: file.id,
+            file_name: file.file_name,
+            content_type: file.content_type,
+            url: Some(url),
+        })
     }
 
-    async fn delete(&self, key: &str) -> Result<(), AppError> {
+    async fn delete(&self, key: &str) -> Result<(), errors::S3Error> {
         self.client
             .delete_object()
             .bucket(&self.settings.bucket_name)
@@ -60,7 +69,7 @@ impl S3Service for S3FileService {
         Ok(())
     }
 
-    async fn get_presigned_url_for_download(&self, key: &str) -> Result<PresignedUrl, AppError> {
+    async fn get_presigned_url(&self, key: &str) -> Result<PresignedUrl, errors::S3Error> {
         let expire = self.settings.expire_time * 60;
         let presigned_req = self
             .client
@@ -78,9 +87,4 @@ impl S3Service for S3FileService {
             expire_in: Some(chrono::Utc::now().add(Duration::from_secs(expire as u64))),
         })
     }
-}
-
-pub async fn init_s3_client() -> Result<Client, AppError> {
-    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-    Ok(Client::new(&config))
 }

@@ -1,6 +1,12 @@
-use crate::settings;
+use async_trait::async_trait;
 use mongodb::bson::doc;
 use mongodb::Database;
+use crate::{errors, settings};
+
+#[async_trait]
+pub trait Finalizer {
+    async fn finalize(&self) -> Result<(), errors::AppError>;
+}
 
 pub async fn init_db(config: &settings::Database) -> Database {
     let db_uri = config.uri.as_str();

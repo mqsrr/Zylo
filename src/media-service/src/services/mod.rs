@@ -1,6 +1,5 @@
 pub mod amq;
-pub mod database;
 pub mod key_vault;
-pub mod redis;
-pub mod s3;
-pub mod user_profile;
+pub mod cache_service;
+pub mod s3_service;
+pub mod grpc_server;

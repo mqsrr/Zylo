@@ -1,71 +1,81 @@
-use crate::services::key_vault::KeyVault;
+use crate::app::{init_prometheus, init_trace, init_tracing, run_app};
+use crate::decorators::cache_service_decorator::ObservableCacheService;
+use crate::decorators::grpc_server_decorator::ObservablePostServer;
+use crate::decorators::post_repo_decorator::DecoratedPostRepositoryBuilder;
+use crate::decorators::s3_service_decorator::DecoratedS3ServiceBuilder;
+use crate::decorators::user_repo_decorator::DecoratedUserRepository;
+use crate::services::amq::{AmqClient, RabbitMqClient};
+use crate::services::cache_service::RedisCacheService;
+use crate::services::grpc_server::GrpcPostServer;
+use crate::utils::helpers::init_db;
 use dotenv::dotenv;
 use models::app_state::AppState;
 use settings::AppConfig;
-use std::net::SocketAddr;
-use log::info;
-use tokio::net::TcpListener;
-use tokio::signal;
+use std::sync::Arc;
 
 mod app;
 mod auth;
+mod decorators;
 mod errors;
 mod models;
+mod repositories;
 mod routes;
 mod services;
 mod settings;
 mod utils;
 
-#[cfg(test)]
-mod tests;
-
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-#![deny(unused_must_use)]
-
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
-    let key_vault = KeyVault::new().await.unwrap_or_else(|e| panic!("{:?}", e));
-    let config = AppConfig::new(&key_vault).await;
 
-    let address = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    let app_state = AppState::new(&config).await;
-    let app = app::create_app(config, app_state.clone());
+    let trace_provider = init_tracing();
+    let registry = init_prometheus();
 
-    let listener = TcpListener::bind(address).await.unwrap();
-    info!("Listening on: {}", &address);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(app_state))
-        .await
-        .expect("Server could not start");
-}
+    init_trace(&trace_provider);
+    let config = AppConfig::new().await;
+    let mongo_db = init_db(&config.database).await;
 
+    let cache_service = Arc::new(ObservableCacheService::new(
+        RedisCacheService::new(config.redis.clone())?,
+        &registry,
+    )?);
 
-async fn shutdown_signal(app_state: AppState) {
-    let ctrl_c = async {
-        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
-        println!("Ctrl+C received!");
-    };
+    let s3_service = Arc::new(
+        DecoratedS3ServiceBuilder::new(config.s3_config.clone())
+            .await
+            .cached(cache_service.clone())
+            .observable(&registry)?
+            .build(),
+    );
 
-    #[cfg(unix)]
-    let terminate = async {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
-        sigterm.recv().await;
-        println!("SIGTERM received!");
-    };
+    let post_repo = Arc::new(
+        DecoratedPostRepositoryBuilder::new(&mongo_db, s3_service.clone())
+            .cached(cache_service.clone())
+            .observable(&registry)?
+            .build(),
+    );
 
-    #[cfg(unix)]
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
+    let user_repo = Arc::new(
+        DecoratedUserRepository::new(mongo_db)
+            .cached(cache_service.clone())
+            .observable(&registry)?
+            .build(),
+    );
 
-    #[cfg(not(unix))]
-    ctrl_c.await;
+    let grpc_server = ObservablePostServer::new(
+        GrpcPostServer::new(post_repo.clone()),
+        &registry,
+    )?;
 
-    app_state.amq.close(200, "Bye bye").await.expect("amq connection could not be closed");
-    println!("Shutdown complete.");
+    let amq_client = Arc::new(RabbitMqClient::new(&config.amq).await?);
+    amq_client
+        .setup_listeners(user_repo.clone(), post_repo.clone())
+        .await?;
+
+    let app_state = AppState::new(post_repo, user_repo, cache_service, amq_client, config).await;
+
+    run_app(app_state, grpc_server, registry).await?;
+    trace_provider.shutdown()?;
+
+    Ok(())
 }
