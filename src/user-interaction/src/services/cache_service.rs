@@ -1,19 +1,23 @@
 ﻿use crate::{errors, settings};
 use async_trait::async_trait;
 use redis::aio::MultiplexedConnection;
-use redis::{AsyncCommands, AsyncIter, Client, ExpireOption};
+use redis::{cmd, pipe, AsyncCommands, AsyncIter, Client, ExpireOption};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[async_trait]
 pub trait CacheService: Send + Sync {
-    async fn open_redis_connection(&self) -> Result<MultiplexedConnection, errors::RedisError>;
+    async fn get_conn(&self) -> Result<MultiplexedConnection, errors::RedisError>;
 
     async fn hfind<T: DeserializeOwned>(
         &self,
         key: &str,
         pattern: &str,
     ) -> Result<Option<T>, errors::RedisError>;
+
+    async fn hfind_keys(&self, key: &str, pattern: &str)
+        -> Result<Vec<String>, errors::RedisError>;
 
     async fn hget<T: DeserializeOwned>(
         &self,
@@ -28,71 +32,28 @@ pub trait CacheService: Send + Sync {
         value: &T,
     ) -> Result<(), errors::RedisError>;
 
-    async fn sadd(&self, key: &str, member: &str) -> Result<(), errors::RedisError>;
+    async fn hdel(&self, key: &str, fields: &[String]) -> Result<(), errors::RedisError>;
 
+    async fn pfadd(&self, key: &str, element: &str) -> Result<bool, errors::RedisError>;
+    async fn pfcount(&self, key: &str) -> Result<u64, errors::RedisError>;
+    async fn pfcount_many(
+        &self,
+        keys: &[String],
+    ) -> Result<HashMap<String, u64>, errors::RedisError>;
+
+    async fn sadd(&self, key: &str, member: &str) -> Result<bool, errors::RedisError>;
+    async fn srem(&self, key: &str, member: &str) -> Result<bool, errors::RedisError>;
+    async fn scard(&self, key: &str) -> Result<u64, errors::RedisError>;
+    async fn scard_many(&self, keys: &[String])
+        -> Result<HashMap<String, u64>, errors::RedisError>;
     async fn sismember(&self, key: &str, member: &str) -> Result<bool, errors::RedisError>;
-
-    async fn srem(&self, key: &str, member: &str) -> Result<(), errors::RedisError>;
-
-    async fn delete(&self, key: &str, fields: &str) -> Result<(), errors::RedisError>;
-
-    async fn delete_all(&self, key: &str, pattern: &str) -> Result<(), errors::RedisError>;
-
-    async fn sismember_with_conn(
+    async fn sismember_many(
         &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
+        keys: &[String],
         member: &str,
-    ) -> Result<bool, errors::RedisError>;
+    ) -> Result<HashMap<String, bool>, errors::RedisError>;
 
-    async fn sadd_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        member: &str,
-    ) -> Result<(), errors::RedisError>;
-
-    async fn srem_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        member: &str,
-    ) -> Result<(), errors::RedisError>;
-
-    async fn hincr_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        field: &str,
-        increment: i32,
-    ) -> Result<(), errors::RedisError>;
-
-    async fn hget_with_conn<T: DeserializeOwned>(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        field: &str,
-    ) -> Result<Option<T>, errors::RedisError>;
-
-    async fn hdel_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        field: &str,
-    ) -> Result<(), errors::RedisError>;
-
-    async fn smembers_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-    ) -> Result<Vec<String>, errors::RedisError>;
-
-    async fn delete_all_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        pattern: &str,
-    ) -> Result<(), errors::RedisError>;
+    async fn del(&self, keys: &[String]) -> Result<(), errors::RedisError>;
 }
 
 pub struct RedisCacheService {
@@ -111,7 +72,7 @@ impl RedisCacheService {
 
 #[async_trait]
 impl CacheService for RedisCacheService {
-    async fn open_redis_connection(&self) -> Result<MultiplexedConnection, errors::RedisError> {
+    async fn get_conn(&self) -> Result<MultiplexedConnection, errors::RedisError> {
         self.redis
             .get_multiplexed_async_connection()
             .await
@@ -123,8 +84,7 @@ impl CacheService for RedisCacheService {
         key: &str,
         pattern: &str,
     ) -> Result<Option<T>, errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-
+        let mut conn = self.get_conn().await?;
         let mut iter: AsyncIter<String> = conn
             .hscan_match(key, pattern)
             .await
@@ -139,13 +99,41 @@ impl CacheService for RedisCacheService {
         Ok(None)
     }
 
+    async fn hfind_keys(
+        &self,
+        key: &str,
+        pattern: &str,
+    ) -> Result<Vec<String>, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        let keys: Vec<String> = cmd("HSCAN")
+            .arg(key)
+            .arg(pattern)
+            .arg("NOVALUES")
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| errors::redis_op_error("HSCAN", key, e))?;
+
+        Ok(keys)
+    }
+
     async fn hget<T: DeserializeOwned>(
         &self,
         key: &str,
         field: &str,
     ) -> Result<Option<T>, errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-        self.hget_with_conn(&mut conn, key, field).await
+        let mut conn = self.get_conn().await?;
+
+        let cached_result: Option<String> = conn
+            .hget(key, field)
+            .await
+            .map_err(|e| errors::redis_op_error("HGET", key, e))?;
+
+        let cached_result = match cached_result {
+            None => return Ok(None),
+            Some(cache) => cache,
+        };
+
+        Ok(serde_json::from_str(&cached_result)?)
     }
 
     async fn hset<T: Serialize + Sync + Send>(
@@ -154,156 +142,151 @@ impl CacheService for RedisCacheService {
         field: &str,
         value: &T,
     ) -> Result<(), errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
+        let mut conn = self.get_conn().await?;
 
-        conn.hset(key, field, serde_json::to_string(value)?)
+        conn.hset::<_, _, _, ()>(key, field, serde_json::to_string(value)?)
             .await
             .map_err(|e| errors::redis_op_error("HSET", key, e))?;
 
-        conn.hexpire(key, self.config.expire_time as i64, ExpireOption::GT, field)
+        conn.hexpire::<_, _, ()>(key, self.config.expire_time as i64, ExpireOption::GT, field)
             .await
             .map_err(|e| errors::redis_op_error("HEXPIRE", key, e))?;
 
         Ok(())
     }
 
-    async fn sadd(&self, key: &str, member: &str) -> Result<(), errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-        self.sadd_with_conn(&mut conn, key, member).await
+    async fn hdel(&self, key: &str, fields: &[String]) -> Result<(), errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+
+        conn.hdel::<_, _, ()>(key, fields)
+            .await
+            .map_err(|e| errors::redis_op_error("HDEL", key, e))
+    }
+
+    async fn pfadd(&self, key: &str, element: &str) -> Result<bool, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+
+        conn.pfadd(key, element)
+            .await
+            .map_err(|e| errors::redis_op_error("PFADD", key, e))
+    }
+
+    async fn pfcount(&self, key: &str) -> Result<u64, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        conn.pfcount(key)
+            .await
+            .map_err(|e| errors::redis_op_error("PIPE PFCOUNT", "multiple", e))
+    }
+
+    async fn pfcount_many(
+        &self,
+        keys: &[String],
+    ) -> Result<HashMap<String, u64>, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        let mut pipe = pipe();
+
+        for key in keys {
+            pipe.pfcount(key);
+        }
+
+        let views: Vec<u64> = pipe
+            .atomic()
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| errors::redis_op_error("PIPE PFCOUNT", "multiple", e))?;
+
+        let mut map = HashMap::new();
+        for (idx, key) in keys.iter().enumerate() {
+            map.insert(key.to_string(), views[idx]);
+        }
+
+        Ok(map)
+    }
+
+    async fn sadd(&self, key: &str, member: &str) -> Result<bool, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        conn.sadd(key, member)
+            .await
+            .map_err(|e| errors::redis_op_error("SADD", key, e))
+    }
+
+    async fn srem(&self, key: &str, member: &str) -> Result<bool, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        conn.srem(key, member)
+            .await
+            .map_err(|e| errors::redis_op_error("SREM", key, e))
+    }
+
+    async fn scard(&self, key: &str) -> Result<u64, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+
+        conn.scard(key)
+            .await
+            .map_err(|e| errors::redis_op_error("SCARD", key, e))
+    }
+
+    async fn scard_many(
+        &self,
+        keys: &[String],
+    ) -> Result<HashMap<String, u64>, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        let mut pipe = pipe();
+
+        pipe.atomic();
+        for key in keys {
+            pipe.scard(key);
+        }
+
+        let likes: Vec<u64> = pipe
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| errors::redis_op_error("PIPE SCARD", "multiple", e))?;
+
+        let mut map = HashMap::new();
+        for (idx, key) in keys.iter().enumerate() {
+            map.insert(key.to_string(), likes[idx]);
+        }
+
+        Ok(map)
     }
 
     async fn sismember(&self, key: &str, member: &str) -> Result<bool, errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-        self.sismember_with_conn(&mut conn, key, member).await
-    }
-
-    async fn srem(&self, key: &str, member: &str) -> Result<(), errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-        self.srem_with_conn(&mut conn, key, member).await
-    }
-
-    async fn delete(&self, key: &str, field: &str) -> Result<(), errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-        self.hdel_with_conn(&mut conn, key, field).await
-    }
-
-    async fn delete_all(&self, key: &str, pattern: &str) -> Result<(), errors::RedisError> {
-        let mut conn = self.open_redis_connection().await?;
-        self.delete_all_with_conn(&mut conn, key, pattern).await
-    }
-
-    async fn sismember_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        member: &str,
-    ) -> Result<bool, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
         conn.sismember(key, member)
             .await
             .map_err(|e| errors::redis_op_error("SISMEMBER", key, e))
     }
 
-    async fn sadd_with_conn(
+    async fn sismember_many(
         &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
+        keys: &[String],
         member: &str,
-    ) -> Result<(), errors::RedisError> {
-        conn.sadd(key, member)
-            .await
-            .map_err(|e| errors::redis_op_error("SADD", key, e))?;
+    ) -> Result<HashMap<String, bool>, errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        let mut pipe = pipe();
 
-        Ok(())
-    }
-
-    async fn srem_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        member: &str,
-    ) -> Result<(), errors::RedisError> {
-        conn.srem(key, member)
-            .await
-            .map_err(|e| errors::redis_op_error("SREM", key, e))?;
-        Ok(())
-    }
-
-    async fn hincr_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        field: &str,
-        increment: i32,
-    ) -> Result<(), errors::RedisError> {
-        conn.hincr(key, field, increment)
-            .await
-            .map_err(|e| errors::redis_op_error("HINCR", key, e))?;
-        Ok(())
-    }
-
-    async fn hget_with_conn<T: DeserializeOwned>(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        field: &str,
-    ) -> Result<Option<T>, errors::RedisError> {
-        let cached: Option<String> = conn.hget(key, field)
-            .await
-            .map_err(|e| errors::redis_op_error("HGET", key, e))?;
-        
-        if let Some(cached) = cached
-        {
-            return serde_json::from_str(&cached).map_or(Ok(None), |v| Ok(Some(v)));
+        for key in keys {
+            pipe.sismember(key, member);
         }
 
-        Ok(None)
-    }
-
-    async fn hdel_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        field: &str,
-    ) -> Result<(), errors::RedisError> {
-        conn.hdel(key, field)
+        let results: Vec<bool> = pipe
+            .atomic()
+            .query_async(&mut conn)
             .await
-            .map_err(|e| errors::redis_op_error("HDEL", key, e))?;
-        Ok(())
-    }
+            .map_err(|e| errors::redis_op_error("PIPE SISMEMBER", "multiple", e))?;
 
-    async fn smembers_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-    ) -> Result<Vec<String>, errors::RedisError> {
-        conn.smembers(key)
-            .await
-            .map_err(|e| errors::redis_op_error("SMEMBERS", key, e))
-    }
-
-    async fn delete_all_with_conn(
-        &self,
-        conn: &mut MultiplexedConnection,
-        key: &str,
-        pattern: &str,
-    ) -> Result<(), errors::RedisError> {
-        let mut del_conn = conn.clone();
-        let mut fields_to_delete: Vec<String> = Vec::new();
-
-        let mut iter: AsyncIter<String> = conn
-            .hscan_match(key, pattern)
-            .await
-            .map_err(|e| errors::redis_op_error("HSCAN", key, e))?;
-
-        while let Some(field) = iter.next_item().await {
-            fields_to_delete.push(field);
+        let mut map = HashMap::new();
+        for (idx, key) in keys.iter().enumerate() {
+            map.insert(key.to_string(), results[idx]);
         }
 
-        del_conn
-            .hdel(key, fields_to_delete)
-            .await
-            .map_err(|r| errors::redis_op_error("HDEL", key, r))?;
+        Ok(map)
+    }
 
-        Ok(())
+    async fn del(&self, keys: &[String]) -> Result<(), errors::RedisError> {
+        let mut conn = self.get_conn().await?;
+        conn.del(keys)
+            .await
+            .map_err(|e| errors::redis_op_error("DEL", "multiple", e))
     }
 }

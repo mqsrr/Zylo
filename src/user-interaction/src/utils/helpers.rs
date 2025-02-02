@@ -1,49 +1,106 @@
-﻿use std::sync::Arc;
+﻿use crate::errors;
+use crate::models::reply::{PostInteractionResponse, ReplyResponse};
+use std::collections::HashMap;
 use ulid::Ulid;
-use crate::errors;
-use crate::repositories::interaction_repo::InteractionRepository;
-use crate::utils::request::ReplyResponse;
 
-pub fn build_cache_key(user_id: Option<String>, post_id: &str) -> String {
-    match user_id {
-        Some(uid) => format!("*{}-{}*", uid, post_id),
-        None => format!("*{}*", post_id),
-    }
+pub trait Validate {
+    fn validate(&self) -> Result<(), errors::ValidationError>;
 }
 
-pub async fn populate_interactions_for_replies<I: InteractionRepository + 'static>(
-    replies: &mut [ReplyResponse],
-    interaction_repo: Arc<I>,
-    user_id: Option<Ulid>,
-) -> Result<(), errors::AppError> {
-    let reply_ids: Vec<String> = replies.iter().map(|r| r.id.to_string()).collect();
 
-    let likes = interaction_repo
-        .get_interactions("user-interaction:posts:likes", &reply_ids)
-        .await?;
-    
-    let views = interaction_repo
-        .get_interactions("user-interaction:posts:views", &reply_ids)
-        .await?;
+pub struct PostInteractionResponseBuilder {
+    post_id: Ulid,
+    replies: Vec<ReplyResponse>,
+    likes: u64,
+    views: u64,
+    user_interacted: Option<bool>,
+}
 
-    for reply in replies.iter_mut() {
-        reply.likes = *likes.get(&reply.id).unwrap_or(&0);
-        reply.views = *views.get(&reply.id).unwrap_or(&0);
-    }
-
-    if let Some(uid) = user_id {
-        let user_interactions = interaction_repo
-            .get_user_interactions(&uid.to_string(), reply_ids)
-            .await?;
-
-        for reply in replies.iter_mut() {
-            reply.user_interacted = Some(
-                *user_interactions
-                    .get(&reply.id.to_string())
-                    .unwrap_or(&false),
-            );
+impl PostInteractionResponseBuilder {
+    pub fn new() -> Self {
+        Self {
+            post_id: Ulid::nil(),
+            replies: Vec::new(),
+            likes: 0,
+            views: 0,
+            user_interacted: None,
         }
     }
 
-    Ok(())
+    pub fn post_id(mut self, post_id: Ulid) -> Self {
+        self.post_id = post_id;
+        self
+    }
+
+    pub fn replies(mut self, replies: Vec<ReplyResponse>) -> Self {
+        self.replies = replies;
+        self
+    }
+
+    pub fn likes(mut self, likes: u64) -> Self {
+        self.likes = likes;
+        self
+    }
+
+    pub fn views(mut self, views: u64) -> Self {
+        self.views = views;
+        self
+    }
+
+    pub fn user_interacted(mut self, user_interacted: Option<bool>) -> Self {
+        self.user_interacted = user_interacted;
+        self
+    }
+
+    pub fn build(self) -> PostInteractionResponse {
+        PostInteractionResponse {
+            post_id: self.post_id,
+            replies: self.replies,
+            likes: self.likes,
+            views: self.views,
+            user_interacted: self.user_interacted,
+        }
+    }
+}
+
+fn find_deepest(
+    reply_map: &HashMap<Ulid, ReplyResponse>,
+    mut parent_reply: ReplyResponse,
+) -> ReplyResponse {
+    let nested_replies: Vec<ReplyResponse> = reply_map
+        .values()
+        .filter(|reply| {
+            reply.post_id == parent_reply.post_id && reply.reply_to_id == parent_reply.id
+        })
+        .map(|reply| find_deepest(reply_map, reply.clone()))
+        .collect();
+
+    parent_reply.nested_replies = nested_replies;
+    parent_reply
+}
+
+pub fn map_nested(replies: Vec<ReplyResponse>) -> HashMap<Ulid, Vec<ReplyResponse>> {
+    let mut post_map: HashMap<Ulid, Vec<ReplyResponse>> = HashMap::new();
+
+    for reply in replies {
+        post_map.entry(reply.post_id).or_default().push(reply);
+    }
+
+    post_map
+        .into_iter()
+        .map(|(post_id, replies)| {
+            let mut mapped = Vec::new();
+            let reply_map: HashMap<Ulid, ReplyResponse> =
+                replies.into_iter().map(|r| (r.id, r)).collect();
+
+            for reply in reply_map.values() {
+                if !reply_map.contains_key(&reply.reply_to_id) {
+                    let nested = find_deepest(&reply_map, reply.clone());
+                    mapped.push(nested);
+                }
+            }
+
+            (post_id, mapped)
+        })
+        .collect()
 }

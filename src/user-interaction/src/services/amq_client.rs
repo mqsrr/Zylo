@@ -1,26 +1,29 @@
 ﻿use crate::errors;
+use crate::errors::ProblemResponse;
 use crate::models::amq_message::{
     PostCreatedMessage, PostDeletedMessage, UserCreatedMessage, UserDeletedMessage,
 };
 use crate::models::Finalizer;
 use crate::repositories::interaction_repo::InteractionRepository;
-use crate::repositories::reply_repo::ReplyRepository;
-use crate::services::cache_service::CacheService;
+use crate::repositories::posts_repo::PostsRepository;
+use crate::repositories::users_repo::UsersRepository;
 use crate::settings::RabbitMq;
 use crate::utils::constants::{POST_EXCHANGE_NAME, USER_EXCHANGE_NAME};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use lapin::options::{
-    BasicAckOptions, BasicConsumeOptions, BasicPublishOptions, ExchangeDeclareOptions,
-    QueueBindOptions, QueueDeclareOptions,
+    BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicPublishOptions,
+    ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions,
 };
 use lapin::types::FieldTable;
 use lapin::{BasicProperties, Channel, Connection, ConnectionProperties};
+use reqwest::StatusCode;
 use serde::Serialize;
 use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::log::warn;
+use tracing::{error, info};
 
 #[async_trait]
 pub trait AmqClient: Send + Sync + Finalizer {
@@ -35,49 +38,45 @@ pub trait AmqClient: Send + Sync + Finalizer {
     ) -> Result<(), errors::AmqError>;
 
     async fn setup_listeners<
-        R: ReplyRepository + 'static,
+        P: PostsRepository + 'static,
+        U: UsersRepository + 'static,
         I: InteractionRepository + 'static,
-        C: CacheService + 'static,
     >(
         &self,
-        reply_repo: Arc<R>,
-        interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
+        posts_repo: Arc<P>,
+        users_repo: Arc<U>,
+        interactions_repo: Arc<I>,
     ) -> Result<(), errors::AppError>;
 }
 
 #[async_trait]
 pub trait AmqConsumer: Send + Sync {
     async fn consume_post_deleted<
-        R: ReplyRepository + 'static,
+        P: PostsRepository + 'static,
         I: InteractionRepository + 'static,
-        C: CacheService + 'static,
     >(
         &self,
-        reply_repo: Arc<R>,
+        posts_repo: Arc<P>,
         interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
     ) -> Result<(), errors::AppError>;
 
-    async fn consume_post_created<C: CacheService + 'static>(
+    async fn consume_post_created<P: PostsRepository + 'static>(
         &self,
-        cache_service: Arc<C>,
+        posts_repo: Arc<P>,
     ) -> Result<(), errors::AppError>;
 
-    async fn consume_user_created<C: CacheService + 'static>(
+    async fn consume_user_created<U: UsersRepository + 'static>(
         &self,
-        cache_service: Arc<C>,
+        users_repo: Arc<U>,
     ) -> Result<(), errors::AppError>;
 
     async fn consume_user_deleted<
-        R: ReplyRepository + 'static,
+        U: UsersRepository + 'static,
         I: InteractionRepository + 'static,
-        C: CacheService + 'static,
     >(
         &self,
-        reply_repo: Arc<R>,
+        users_repo: Arc<U>,
         interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
     ) -> Result<(), errors::AppError>;
 }
 
@@ -138,12 +137,26 @@ impl RabbitMqClient {
                                     "Failed to deserialize message from {}: {}",
                                     queue_name, err
                                 );
+
+                                let options = BasicNackOptions {
+                                    requeue: false,
+                                    ..Default::default()
+                                };
+                                if let Err(err) = delivery.nack(options).await {
+                                    error!("Failed to nack message from {}: {}", queue_name, err);
+                                }
+
                                 continue;
                             }
                         };
 
                         if let Err(err) = handler(event).await {
-                            error!("{:?}", err);
+                            match err.status_code() {
+                                StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND => {
+                                    warn!("{}", err.to_string())
+                                }
+                                _ => error!("{}", err.to_string()),
+                            }
                         }
 
                         if let Err(err) = delivery.ack(BasicAckOptions::default()).await {
@@ -163,88 +176,53 @@ impl RabbitMqClient {
         Ok(())
     }
 
-    async fn handle_post_deleted<
-        R: ReplyRepository + 'static,
-        I: InteractionRepository + 'static,
-        C: CacheService + 'static,
-    >(
+    async fn handle_post_deleted<P, I>(
         event: PostDeletedMessage,
-        reply_repo: Arc<R>,
-        interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
-    ) -> Result<(), errors::AppError> {
+        posts_repo: Arc<P>,
+        interactions_repo: Arc<I>,
+    ) -> Result<(), errors::AppError>
+    where
+        P: PostsRepository + 'static,
+        I: InteractionRepository + 'static,
+    {
         let post_id = event.id.to_string();
 
-        reply_repo.delete_all_by_post_id(&event.id).await?;
-        interaction_repo.delete_interactions(&post_id).await?;
+        posts_repo.delete(&event.id).await?;
+        interactions_repo.delete_interactions(&post_id).await?;
 
-        cache_service
-            .srem("user-interaction:created-posts", &post_id)
-            .await?;
         Ok(())
     }
 
-    async fn handle_post_created<I: CacheService + 'static>(
+    async fn handle_post_created<P: PostsRepository + 'static>(
         event: PostCreatedMessage,
-        cache_service: Arc<I>,
+        posts_repo: Arc<P>,
     ) -> Result<(), errors::AppError> {
-        let user_id = event.user_id.to_string();
-        let post_id = event.id.to_string();
+        posts_repo.create(&event.id, &event.user_id).await?;
 
-        let user_exists = cache_service
-            .sismember("user-interaction:created-users", &user_id)
-            .await?;
-        if !user_exists {
-            warn!("undefined user {user_id} has created the post {post_id}");
-            return Ok(());
-        }
-
-        cache_service
-            .sadd("user-interaction:created-posts", &post_id)
-            .await
-            .map_err(errors::AppError::from)
+        Ok(())
     }
 
-    async fn handle_user_created<C: CacheService + 'static>(
+    async fn handle_user_created<U: UsersRepository + 'static>(
         event: UserCreatedMessage,
-        cache_service: Arc<C>,
+        users_repo: Arc<U>,
     ) -> Result<(), errors::AppError> {
-        cache_service
-            .sadd("user-interaction:created-users", &event.id.to_string())
-            .await
-            .map_err(errors::AppError::from)
+        users_repo.create(&event.id).await?;
+        Ok(())
     }
 
     async fn handle_user_deleted<
-        R: ReplyRepository + 'static,
+        U: UsersRepository + 'static,
         I: InteractionRepository + 'static,
-        C: CacheService + 'static,
     >(
         event: UserDeletedMessage,
-        reply_repo: Arc<R>,
+        users_repo: Arc<U>,
         interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
     ) -> Result<(), errors::AppError> {
-        let user_id = event.id.to_string();
-        let user_exists = cache_service
-            .sismember("user-interaction:created-users", &user_id)
-            .await?;
+        let deleted_posts_ids = users_repo.delete(&event.id).await?;
 
-        if !user_exists {
-            warn!("deleted user {user_id} could not be found");
-            return Ok(());
-        }
-
-        cache_service
-            .srem("user-interaction:created-users", &user_id)
-            .await
-            .map_err(errors::AppError::from)?;
-
-        let deleted_replies = reply_repo.delete_all_by_user_id(&event.id).await?;
         interaction_repo
-            .delete_many_interactions(&deleted_replies)
+            .delete_many_interactions(&deleted_posts_ids)
             .await?;
-
         Ok(())
     }
 }
@@ -345,60 +323,50 @@ impl AmqClient for RabbitMqClient {
         Ok(())
     }
 
-    async fn setup_listeners<
-        R: ReplyRepository + 'static,
-        I: InteractionRepository + 'static,
-        C: CacheService + 'static,
-    >(
+    async fn setup_listeners<P, U, I>(
         &self,
-        reply_repo: Arc<R>,
+        posts_repo: Arc<P>,
+        users_repo: Arc<U>,
         interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
-    ) -> Result<(), errors::AppError> {
+    ) -> Result<(), errors::AppError>
+    where
+        P: PostsRepository + 'static,
+        U: UsersRepository + 'static,
+        I: InteractionRepository + 'static,
+    {
         self.declare_exchanges().await?;
         self.declare_queues().await?;
 
-        self.consume_post_created(cache_service.clone()).await?;
-        self.consume_post_deleted(
-            reply_repo.clone(),
-            interaction_repo.clone(),
-            cache_service.clone(),
-        )
-        .await?;
+        self.consume_post_created(posts_repo.clone()).await?;
+        self.consume_post_deleted(posts_repo.clone(), interaction_repo.clone())
+            .await?;
 
-        self.consume_user_created(cache_service.clone()).await?;
-        self.consume_user_deleted(reply_repo, interaction_repo, cache_service)
+        self.consume_user_created(users_repo.clone()).await?;
+        self.consume_user_deleted(users_repo, interaction_repo)
             .await
     }
 }
 
 #[async_trait]
 impl AmqConsumer for RabbitMqClient {
-    async fn consume_post_deleted<
-        R: ReplyRepository + 'static,
-        I: InteractionRepository + 'static,
-        C: CacheService + 'static,
-    >(
+    async fn consume_post_deleted<P, I>(
         &self,
-        reply_repo: Arc<R>,
+        posts_repo: Arc<P>,
         interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
-    ) -> Result<(), errors::AppError> {
+    ) -> Result<(), errors::AppError>
+    where
+        P: PostsRepository + 'static,
+        I: InteractionRepository + 'static,
+    {
         self.consume_event(
             "post-deleted-user-interaction-queue".to_string(),
             move |event: PostDeletedMessage| {
                 Box::pin({
-                    let reply_repo = reply_repo.clone();
+                    let posts_repo = posts_repo.clone();
                     let interaction_repo = interaction_repo.clone();
-                    let cache_service = cache_service.clone();
                     async move {
-                        RabbitMqClient::handle_post_deleted(
-                            event,
-                            reply_repo,
-                            interaction_repo,
-                            cache_service,
-                        )
-                        .await
+                        RabbitMqClient::handle_post_deleted(event, posts_repo, interaction_repo)
+                            .await
                     }
                 })
             },
@@ -406,63 +374,56 @@ impl AmqConsumer for RabbitMqClient {
         .await
     }
 
-    async fn consume_post_created<C: CacheService + 'static>(
+    async fn consume_post_created<P: PostsRepository + 'static>(
         &self,
-        cache_service: Arc<C>,
+        posts_repo: Arc<P>,
     ) -> Result<(), errors::AppError> {
         self.consume_event(
             "post-created-user-interaction-queue".to_string(),
             move |event: PostCreatedMessage| {
                 Box::pin({
-                    let cache_service = cache_service.clone();
-                    async move { RabbitMqClient::handle_post_created(event, cache_service).await }
+                    let posts_repo = posts_repo.clone();
+                    async move { RabbitMqClient::handle_post_created(event, posts_repo).await }
                 })
             },
         )
         .await
     }
 
-    async fn consume_user_created<C: CacheService + 'static>(
-        &self,
-        cache_service: Arc<C>,
-    ) -> Result<(), errors::AppError> {
+    async fn consume_user_created<U>(&self, users_repo: Arc<U>) -> Result<(), errors::AppError>
+    where
+        U: UsersRepository + 'static,
+    {
         self.consume_event(
             "user-created-user-interaction-queue".to_string(),
             move |event: UserCreatedMessage| {
                 Box::pin({
-                    let cache_service = cache_service.clone();
-                    async move { RabbitMqClient::handle_user_created(event, cache_service).await }
+                    let users_repo = users_repo.clone();
+                    async move { RabbitMqClient::handle_user_created(event, users_repo).await }
                 })
             },
         )
         .await
     }
 
-    async fn consume_user_deleted<
-        R: ReplyRepository + 'static,
-        I: InteractionRepository + 'static,
-        C: CacheService + 'static,
-    >(
+    async fn consume_user_deleted<U, I>(
         &self,
-        reply_repo: Arc<R>,
+        users_repo: Arc<U>,
         interaction_repo: Arc<I>,
-        cache_service: Arc<C>,
-    ) -> Result<(), errors::AppError> {
+    ) -> Result<(), errors::AppError>
+    where
+        U: UsersRepository + 'static,
+        I: InteractionRepository + 'static,
+    {
         self.consume_event(
             "user-deleted-user-interaction-queue".to_string(),
             move |event: UserDeletedMessage| {
                 Box::pin({
-                    let reply_repo = reply_repo.clone();
+                    let users_repo = users_repo.clone();
                     let interaction_repo = interaction_repo.clone();
-                    let cache_service = cache_service.clone();
                     async move {
-                        RabbitMqClient::handle_user_deleted(
-                            event,
-                            reply_repo,
-                            interaction_repo,
-                            cache_service,
-                        )
-                        .await
+                        RabbitMqClient::handle_user_deleted(event, users_repo, interaction_repo)
+                            .await
                     }
                 })
             },

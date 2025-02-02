@@ -5,6 +5,7 @@ use axum::response::IntoResponse;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use tokio::sync::OnceCell;
+use crate::errors;
 use crate::settings::Auth;
 
 #[allow(dead_code)]
@@ -22,8 +23,8 @@ static DECODING_KEY: OnceCell<DecodingKey> = OnceCell::const_new();
 pub async fn authorization_middleware(State(config): State<Auth>, req: Request, next: Next) -> Result<impl IntoResponse, AppError> {
     let auth_token = req.headers()
         .get("Authorization")
-        .ok_or_else(|| AppError::BearerTokenNotFound)?.to_str()
-        .map_err(|_| AppError::BearerTokenNotFound)?;
+        .ok_or_else(|| errors::AuthError::TokenNotFound)?.to_str()
+        .map_err(|_| errors::AuthError::TokenNotFound)?;
 
     let auth_token = auth_token.trim_start_matches("Bearer ").trim();
 
@@ -36,7 +37,7 @@ async fn authorize_user(auth_token: &str, auth_config: &Auth) -> Result<(), AppE
     let validation = VALIDATION.get_or_init(|| create_validation(&auth_config)).await;
     let decoding_key = DECODING_KEY.get_or_init(||async {DecodingKey::from_secret(auth_config.secret.as_ref())}).await;
 
-    decode::<Claims>(auth_token, decoding_key, validation).ok().ok_or_else(|| AppError::InvalidBearerToken)?;
+    decode::<Claims>(auth_token, decoding_key, validation).ok().ok_or_else(|| errors::AuthError::InvalidToken)?;
     Ok(())
 }
 

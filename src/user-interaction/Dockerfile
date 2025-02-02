@@ -15,6 +15,6 @@ FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /usr/src/user-interaction/target/release/user-interaction /usr/local/bin/user-interaction
 
 EXPOSE 8080
-EXPOSE 50052
+EXPOSE 50051
 
 CMD ["/usr/local/bin/user-interaction"]

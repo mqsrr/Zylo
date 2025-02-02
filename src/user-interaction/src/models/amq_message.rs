@@ -1,7 +1,7 @@
-﻿use crate::utils::request::ReplyResponse;
-use chrono::NaiveDateTime;
+﻿use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
+use crate::models::reply::ReplyResponse;
 
 pub fn format_datetime(naive: NaiveDateTime) -> String {
     naive.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()

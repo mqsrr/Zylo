@@ -1,24 +1,28 @@
 use crate::auth::authorization_middleware;
 use crate::models::app_state::AppState;
-use crate::observability::metrics::metrics_handler;
 use crate::repositories::interaction_repo::InteractionRepository;
-use crate::repositories::reply_repo::ReplyRepository;
 use crate::routes;
 use crate::services::amq_client::AmqClient;
-use crate::services::cache_service::CacheService;
-use crate::services::grpc_server::reply_server;
-use crate::services::grpc_server::reply_server::grpc_reply_service_server::{
-    GrpcReplyService, GrpcReplyServiceServer,
+use crate::services::grpc_server::reply_server::reply_service_server::{
+    ReplyService as GrpcReplyServer, ReplyServiceServer as GrpcReplyServiceServer,
 };
+use crate::services::post_interactions_service::PostInteractionsService;
+use crate::services::reply_service::ReplyService;
 use crate::utils::constants::REQUEST_ID_HEADER;
 use axum::http::{header, HeaderName, Request};
-use axum::routing::get;
 use axum::{middleware, Router};
-use prometheus::Registry;
+use dotenv::dotenv;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::{global, KeyValue};
+use opentelemetry_sdk::trace::TracerProvider;
+use opentelemetry_sdk::Resource;
 use std::net::SocketAddr;
+use std::time::Duration;
+use opentelemetry_otlp::{ WithExportConfig};
+use opentelemetry_sdk::metrics::{SdkMeterProvider};
 use tokio::net::TcpListener;
 use tokio::signal;
-use tonic::transport::Server;
+use tonic::transport::{Server};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
@@ -26,17 +30,83 @@ use tower_http::sensitive_headers::SetSensitiveHeadersLayer;
 use tower_http::trace;
 use tracing::log::{error, info};
 use tracing::{field, info_span};
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
-pub async fn create_router<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
+pub fn init_trace(provider: &TracerProvider) {
+    let tracer = provider.tracer("tracing-jaeger");
+    tracing_subscriber::registry()
+        .with(OpenTelemetryLayer::new(tracer))
+        .with(fmt::layer().pretty())
+        .with(EnvFilter::from_default_env())
+        .init();
+}
+
+pub fn init_meter() -> SdkMeterProvider{
+    let resource = Resource::new(vec![
+        KeyValue::new("service.name", "user-interaction"),
+        KeyValue::new("service.version", "1.0.0"),
+    ]);
+    
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317")
+        .with_timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+
+    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_interval(Duration::from_secs(3))
+        .with_timeout(Duration::from_secs(10))
+        .build();
+
+    let provider = SdkMeterProvider::builder()
+        .with_reader(reader)
+        .with_resource(resource)
+        .build();
+    
+    global::set_meter_provider(provider.clone());
+    provider
+}
+
+pub fn init_tracing() -> TracerProvider {
+    dotenv().ok();
+    
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317")
+        .build()
+        .unwrap();
+
+    let resource = Resource::new(vec![
+        KeyValue::new("service.name", "user-interaction"),
+        KeyValue::new("service.version", "1.0.0"),
+    ]);
+
+    let provider = TracerProvider::builder()
+        .with_resource(resource.clone())
+        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .build();
+
+    
+    global::set_tracer_provider(provider.clone());
+    provider
+}
+
+
+pub async fn create_router<A, I, RS, PS>(
+    app_state: AppState<A, I, RS, PS>,
+) -> Router
+where
     A: AmqClient + 'static,
-    C: CacheService + 'static,
->(
-    app_state: AppState<R, I, A, C>,
-    registry: Registry,
-) -> Router {
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
     let x_request_id = HeaderName::from_static(REQUEST_ID_HEADER);
+
     let middleware = ServiceBuilder::new()
         .layer(SetRequestIdLayer::new(
             x_request_id.clone(),
@@ -44,30 +114,39 @@ pub async fn create_router<
         ))
         .layer(
             trace::TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<_>| {
-                    let request_id = request.headers().get(REQUEST_ID_HEADER);
-                    let request_uri = request.uri();
-                    let span = info_span!(
-                        "",
-                        "otel.name" = format!(
-                            "{method} {target}",
-                            method = request.method().as_str(),
-                            target = request_uri.path()
-                        ),
-                        "otel.kind" = "server",
-                        "http.request.id" = field::Empty,
-                        "url.query" = field::Empty
-                    );
+                .make_span_with({
+                    let server_port = app_state.config.server.port.to_string();
+                    move |request: &Request<_>| {
+                        let request_id = request.headers().get(REQUEST_ID_HEADER);
+                        let request_uri = request.uri();
+                        let request_path = request_uri.path();
+                        let method = request.method().to_string();
 
-                    if let Some(query) = request_uri.query() {
-                        span.record("url.query", query);
+                        let span = info_span!(
+                            "",
+                            "otel.name" = format!("{} {}", &method, &request_path),
+                            "http.request.method" = &method,
+                            "http.request.method_original" = &method,
+                            "server.address" = "0.0.0.0",
+                            "server.port" = server_port,
+                            "url.full" = request_uri.to_string(),
+                            "otel.kind" = "server",
+                            "http.request.id" = field::Empty,
+                            "url.query" = field::Empty,
+                            "http.response.status_code" = field::Empty,
+                            "http.response.content_length" = field::Empty
+                        );
+
+                        if let Some(query) = request_uri.query() {
+                            span.record("url.query", query);
+                        }
+
+                        if let Some(request_id) = request_id {
+                            span.record("http.request.id", request_id.to_str().unwrap_or_default());
+                        }
+
+                        span
                     }
-
-                    if let Some(request_id) = request_id {
-                        span.record("http.request.id", request_id.to_str().unwrap_or_default());
-                    }
-
-                    span
                 })
                 .on_request(trace::DefaultOnRequest::new().level(tracing::Level::INFO))
                 .on_response(
@@ -75,6 +154,7 @@ pub async fn create_router<
                         .level(tracing::Level::INFO)
                         .include_headers(true),
                 )
+ 
                 .on_failure(trace::DefaultOnFailure::new().level(tracing::Level::ERROR)),
         )
         .layer(PropagateRequestIdLayer::new(x_request_id));
@@ -82,7 +162,6 @@ pub async fn create_router<
     Router::new()
         .merge(routes::reply::create_router(app_state.clone()))
         .merge(routes::interaction::create_router(app_state.clone()))
-        .route("/metrics", get(move || metrics_handler(registry)))
         .layer(middleware)
         .layer(middleware::from_fn_with_state(
             app_state.config.auth.clone(),
@@ -94,32 +173,27 @@ pub async fn create_router<
         .layer(CorsLayer::permissive())
 }
 
-pub async fn run_app<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
+pub async fn run_app<A, I, RS, PS>(
+    app_state: AppState<A, I, RS, PS>,
+    grpc_server: impl GrpcReplyServer,
+) -> Result<(), Box<dyn std::error::Error>>
+where
     A: AmqClient + 'static,
-    C: CacheService + 'static,
->(
-    app_state: AppState<R, I, A, C>,
-    grpc_server: impl GrpcReplyService,
-    registry: Registry,
-) -> Result<(), Box<dyn std::error::Error>> {
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
     let axum_address = SocketAddr::from(([0, 0, 0, 0], app_state.config.server.port));
-    let axum_app = create_router(app_state.clone(), registry).await;
+    let axum_app = create_router(app_state.clone()).await;
 
     let grpc_address = format!("[::1]:{}", app_state.config.grpc_server.port)
         .parse()
         .unwrap();
 
     info!("Starting gRPC server on {}", grpc_address);
-    let grpc_service_reflection = tonic_reflection::server::Builder::configure()
-        .register_encoded_file_descriptor_set(reply_server::FILE_DESCRIPTOR_SET)
-        .build_v1()
-        .unwrap();
 
     let grpc_server_future = Server::builder()
         .add_service(GrpcReplyServiceServer::new(grpc_server))
-        .add_service(grpc_service_reflection)
         .serve(grpc_address);
 
     info!("Starting Axum HTTP API server on {}", axum_address);
@@ -143,14 +217,13 @@ pub async fn run_app<
     Ok(())
 }
 
-async fn shutdown_signal<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
+async fn shutdown_signal<A, I, RS, PS>(app_state: AppState<A, I, RS, PS>)
+where
     A: AmqClient + 'static,
-    C: CacheService + 'static,
->(
-    app_state: AppState<R, I, A, C>,
-) {
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
     let ctrl_c = async {
         signal::ctrl_c()
             .await

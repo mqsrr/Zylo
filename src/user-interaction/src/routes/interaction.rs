@@ -1,21 +1,22 @@
-﻿use crate::errors::AppError;
+﻿use crate::errors;
 use crate::models::app_state::AppState;
 use crate::repositories::interaction_repo::InteractionRepository;
-use crate::repositories::reply_repo::ReplyRepository;
 use crate::services::amq_client::AmqClient;
-use crate::services::cache_service::CacheService;
+use crate::services::post_interactions_service::PostInteractionsService;
+use crate::services::reply_service::ReplyService;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, post};
 use axum::Router;
 use ulid::Ulid;
 
-pub fn create_router<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
+pub fn create_router<A, I, RS, PS>(state: AppState<A, I, RS, PS>) -> Router
+where
     A: AmqClient + 'static,
-    C: CacheService + 'static,
->(state: AppState<R, I, A, C>) -> Router {
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
     Router::new()
         .route("/api/users/{userId}/likes/posts/{postId}", post(like_post))
         .route(
@@ -26,51 +27,65 @@ pub fn create_router<
         .with_state(state)
 }
 
-async fn like_post<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
-    A: AmqClient + 'static,
-    C: CacheService + 'static,
->(
-    State(state): State<AppState<R, I, A, C>>,
+async fn like_post<A, I, RS, PS>(
+    State(state): State<AppState<A, I, RS, PS>>,
     Path((user_id, post_id)): Path<(Ulid, Ulid)>,
-) -> Result<StatusCode, AppError> {
-    state
+) -> Result<StatusCode, errors::AppError>
+where
+    A: AmqClient + 'static,
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
+    let is_liked = state
         .interaction_repo
-        .like_post(user_id.to_string(), post_id.to_string())
+        .like(&post_id.to_string(), &user_id)
         .await?;
 
-    Ok(StatusCode::CREATED)
+    match is_liked {
+        true => Ok(StatusCode::CREATED),
+        false =>  Err(errors::AppError::NotFound(String::from("Post or user could not be found"))),
+    }
 }
 
-async fn unlike_post<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
-    A: AmqClient + 'static,
-    C: CacheService + 'static,
->(
-    State(state): State<AppState<R, I, A, C>>,
+async fn unlike_post<A, I, RS, PS>(
+    State(state): State<AppState<A, I, RS, PS>>,
     Path((user_id, post_id)): Path<(Ulid, Ulid)>,
-) -> Result<StatusCode, AppError> {
-    state
-        .interaction_repo.unlike_post(user_id.to_string(), post_id.to_string())
+) -> Result<StatusCode, errors::AppError>
+where
+    A: AmqClient + 'static,
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
+    let is_unliked = state
+        .interaction_repo
+        .unlike(&post_id.to_string(), &user_id)
         .await?;
 
-    Ok(StatusCode::NO_CONTENT)
+    match is_unliked {
+        true => Ok(StatusCode::NO_CONTENT),
+        false => Err(errors::AppError::NotFound(String::from("Post or user could not be found"))),
+    }
 }
 
-async fn view_post<
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
-    A: AmqClient + 'static,
-    C: CacheService + 'static,
->(
-    State(state): State<AppState<R, I, A, C>>,
+async fn view_post<A, I, RS, PS>(
+    State(state): State<AppState<A, I, RS, PS>>,
     Path((user_id, post_id)): Path<(Ulid, Ulid)>,
-) -> Result<StatusCode, AppError> {
-    state
-        .interaction_repo.add_view(user_id.to_string(), post_id.to_string())
+) -> Result<StatusCode, errors::AppError>
+where
+    A: AmqClient + 'static,
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
+{
+    let is_applied = state
+        .interaction_repo
+        .view(&post_id.to_string(), &user_id)
         .await?;
 
-    Ok(StatusCode::CREATED)
+    match is_applied {
+        true => Ok(StatusCode::CREATED),
+        false => Ok(StatusCode::OK),
+    }
 }

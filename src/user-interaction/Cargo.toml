@@ -15,7 +15,7 @@ thiserror = "2.0.3"
 redis = { version = "0.28.0", features = ["tokio-comp"] }
 async-trait = "0.1.82"
 tracing = "0.1"
-tracing-opentelemetry = "0.28.0"
+tracing-opentelemetry = {version = "0.28.0", features = ["thiserror"]}
 tracing-subscriber = {version = "0.3.19", features = ["json", "env-filter"]}
 tower = "0.5.2"
 tower-http = { version = "0.6.0", features = [
@@ -27,7 +27,6 @@ tower-http = { version = "0.6.0", features = [
     "request-id"
 ] }
 tokio = { version = "1.43", features = ["full"] }
-tokio-cron-scheduler = { version = "0.13.0", features = ["signal"] }
 lapin = "2.5.0"
 jsonwebtoken = "9.3.0"
 dotenv = "0.15.0"
@@ -35,10 +34,8 @@ reqwest = { version = "0.12", features = ["json", "blocking"] }
 futures-util = "0.3.3"
 prost = "0.13.4"
 tonic = { version = "0.12", features = ["transport"] }
-tonic-reflection = "0.12.3"
 opentelemetry = "0.27.1"
-opentelemetry-otlp = {version = "0.27.0", features = ["tonic"]}
-prometheus = "0.13.4"
+opentelemetry-otlp = {version = "0.27.0", features = ["tonic", "metrics", "logs", "trace"] }
 opentelemetry_sdk = {version = "0.27.1", features = ["rt-tokio"]}
 
 [build-dependencies]

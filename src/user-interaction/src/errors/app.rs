@@ -3,13 +3,13 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use reqwest::Error;
 use serde_json::json;
 use std::env::VarError;
 use opentelemetry::trace::TraceContextExt;
 use thiserror::Error;
 use tracing::{error, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use reqwest::Error as ReqwestError;
 
 pub trait ProblemResponse {
     fn status_code(&self) -> StatusCode;
@@ -36,59 +36,51 @@ pub trait ProblemResponse {
 }
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("Json Error: {0}")]
-    InvalidJsonContent(#[from] JsonRejection),
-    #[error("Validation failed: {0}")]
-    ValidationError(String),
-    #[error("Bearer token not found")]
-    BearerTokenNotFound,
-    #[error("Bearer token is not valid")]
-    InvalidBearerToken,
-    #[error("Env error: {0}")]
-    EnvironmentVariableNotFound(#[from] VarError),
-
-    #[error("Error making the request: {0}")]
-    ReqwestError(#[from] Error),
-    #[error(transparent)]
-    RedisError(#[from] errors::RedisError),
-    #[error(transparent)]
-    DatabaseError(#[from] errors::DatabaseError),
     #[error(transparent)]
     AmqError(#[from] errors::AmqError),
     #[error(transparent)]
-    ObservabilityError(#[from] errors::ObservabilityError),
+    PostgresError(#[from] errors::DatabaseError),
+    #[error(transparent)]
+    RedisError(#[from] errors::RedisError),
+    #[error(transparent)]
+    AuthError(#[from] errors::AuthError),
+    #[error(transparent)]
+    ValidationError(#[from] errors::ValidationError),
+
+    #[error("Error making the request: {0}")]
+    ReqwestError(#[from] ReqwestError),
+    #[error("Json Error: {0}")]
+    InvalidJsonContent(#[from] JsonRejection),
+    #[error("Env error: {0}")]
+    EnvironmentVariableNotFound(#[from] VarError),
+    #[error("{0}")]
+    NotFound(String),
 }
 
 impl ProblemResponse for AppError {
     fn status_code(&self) -> StatusCode {
         match self {
-            AppError::InvalidJsonContent(_) | AppError::ValidationError(_) => {
-                StatusCode::BAD_REQUEST
-            }
             AppError::RedisError(err) => err.status_code(),
-            AppError::DatabaseError(err) => err.status_code(),
+            AppError::PostgresError(err) => err.status_code(),
             AppError::AmqError(err) => err.status_code(),
-            AppError::EnvironmentVariableNotFound(_)
-            | AppError::ReqwestError(_)
-            | AppError::ObservabilityError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::BearerTokenNotFound | AppError::InvalidBearerToken => {
-                StatusCode::UNAUTHORIZED
-            }
+            AppError::AuthError(err) => err.status_code(),
+            AppError::ValidationError(err) => err.status_code(),
+            AppError::EnvironmentVariableNotFound(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     fn title(&self) -> &str {
         match self {
-            AppError::InvalidJsonContent(_) => "Bad Request",
-            AppError::ValidationError(_) => "Bad Request",
-            AppError::BearerTokenNotFound => "Unauthorized",
-            AppError::InvalidBearerToken => "Unauthorized",
+            AppError::ValidationError(err) => err.title(),
+            AppError::AuthError(err) => err.title(),
             AppError::RedisError(err) => err.title(),
-            AppError::DatabaseError(err) => err.title(),
             AppError::AmqError(err) => err.title(),
-            AppError::ObservabilityError(_) => "Internal Server Error",
-            AppError::EnvironmentVariableNotFound(_) => "Internal Server Error",
-            AppError::ReqwestError(_) => "Internal Server Error",
+            AppError::PostgresError(err) => err.title(),
+
+            AppError::NotFound(_) => "Resource Not Found",
+            _ => "Internal Server Error"
         }
     }
 
@@ -98,23 +90,12 @@ impl ProblemResponse for AppError {
 
     fn public_detail(&self) -> &str {
         match self {
-            AppError::BearerTokenNotFound => "Authorization token is missing. Please provide a valid token.",
-            AppError::InvalidBearerToken => "The provided authorization token is invalid. Please check your credentials.",
-
-            AppError::InvalidJsonContent(_) => "The provided JSON content is invalid. Please ensure the request body is properly formatted.",
-            AppError::ValidationError(_) => "The request contains invalid data. Please verify your input and try again.",
-            AppError::ReqwestError(_) => "The request could not be processed. Please check the parameters and try again.",
-
+            AppError::ValidationError(err) => &err.public_detail(),
             AppError::RedisError(err) => err.public_detail(),
-            AppError::DatabaseError(err) => err.public_detail(),
+            AppError::PostgresError(err) => err.public_detail(),
             AppError::AmqError(err) => err.public_detail(),
-            AppError::ObservabilityError(_) => {
-                "An unexpected server error occurred. Please try again later."
-            }
-            AppError::EnvironmentVariableNotFound(_) => {
-                "A server error occurred due to a missing configuration setting. Please contact support."
-            }
-
+            AppError::NotFound(err) => err,
+            
             _ => "An unexpected server error occurred. Please try again later."
         }
     }

@@ -1,5 +1,5 @@
 use crate::services::key_vault::KeyVault;
-use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_BACKUP_CONNECTION_STRING, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
+use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
 use serde::Deserialize;
 use std::fs;
 
@@ -49,7 +49,6 @@ impl Auth {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Redis {
     pub uri: String,
-    pub backup_uri: String,
     pub expire_time: u32,
 }
 
@@ -57,7 +56,6 @@ impl Redis {
     async fn from_key_vault(key_vault: &KeyVault) -> Self {
         Self{
             uri: key_vault.get_secret(REDIS_CONNECTION_STRING).await.unwrap(),
-            backup_uri: key_vault.get_secret(REDIS_BACKUP_CONNECTION_STRING).await.unwrap(),
             expire_time: key_vault.get_secret(REDIS_EXPIRE).await.unwrap().parse().unwrap(),
         }
     }

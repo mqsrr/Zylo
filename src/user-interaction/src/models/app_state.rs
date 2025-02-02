@@ -1,68 +1,68 @@
 ﻿use crate::errors;
-use crate::repositories::interaction_repo::InteractionRepository;
-use crate::repositories::reply_repo::ReplyRepository;
+use crate::services::amq_client::AmqClient;
+use crate::services::reply_service::ReplyService;
 use crate::settings::AppConfig;
 use std::sync::Arc;
-use crate::services::amq_client::AmqClient;
-use crate::services::cache_service::CacheService;
+use crate::repositories::interaction_repo::InteractionRepository;
+use crate::services::post_interactions_service::PostInteractionsService;
 
 #[derive(Debug)]
-pub struct AppState<R, I, A, C>
+pub struct AppState<A,I, RS, PS>
 where
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
     A: AmqClient + 'static,
-    C: CacheService + 'static,
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
 {
-    pub reply_repo: Arc<R>,
-    pub interaction_repo: Arc<I>,
     pub amq_client: Arc<A>,
-    pub cache_service: Arc<C>,
+    pub interaction_repo: Arc<I>,
+    pub reply_service: Arc<RS>,
+    pub post_interactions_service: Arc<PS>,
     pub config: AppConfig,
 }
 
-impl<R, I, A, C> Clone for AppState<R, I, A, C>
+impl<A, I, RS, PS> Clone for AppState<A, I, RS, PS>
 where
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
     A: AmqClient + 'static,
-    C: CacheService + 'static,
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
 {
     fn clone(&self) -> Self {
         AppState {
-            reply_repo: self.reply_repo.clone(),
-            interaction_repo: self.interaction_repo.clone(),
             amq_client: self.amq_client.clone(),
-            cache_service: self.cache_service.clone(),
+            interaction_repo: self.interaction_repo.clone(),
+            reply_service: self.reply_service.clone(),
+            post_interactions_service: self.post_interactions_service.clone(),
             config: self.config.clone(),
         }
     }
 }
-impl<R, I, A, C> AppState<R, I, A, C>
+impl<A,I, RS, PS> AppState<A, I, RS, PS>
 where
-    R: ReplyRepository + 'static,
-    I: InteractionRepository + 'static,
     A: AmqClient + 'static,
-    C: CacheService + 'static,
+    I: InteractionRepository + 'static,
+    RS: ReplyService + 'static,
+    PS: PostInteractionsService + 'static,
 {
     pub fn new(
-        reply_repo: Arc<R>,
-        interaction_repo: Arc<I>,
         amq_client: Arc<A>,
-        cache_service: Arc<C>,
+        interaction_repo: Arc<I>,
+        reply_service: Arc<RS>,
+        post_interactions_service: Arc<PS>,
         config: AppConfig,
     ) -> Self {
         AppState {
-            reply_repo,
-            interaction_repo,
             amq_client,
-            cache_service,
+            interaction_repo,
+            reply_service,
+            post_interactions_service,
             config,
         }
     }
 
     pub async fn close(&self) -> Result<(), errors::AppError> {
-        self.reply_repo.finalize().await?;
+        self.reply_service.finalize().await?;
         self.amq_client.finalize().await?;
 
         Ok(())
