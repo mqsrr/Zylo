@@ -1,16 +1,20 @@
+use crate::decorators::trace_server_error;
 use crate::errors;
 use crate::errors::AppError;
-use crate::repositories::user_repo::{MongoUserRepository, UserRepository};
+use crate::repositories::user_repo::{MongoUserRepository, UsersRepository};
 use crate::services::cache_service::CacheService;
 use async_trait::async_trait;
-use mongodb::{ClientSession, Database};
-use prometheus::{HistogramVec, IntCounterVec, Opts, Registry};
+use mongodb::Database;
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::trace::SpanKind;
+use opentelemetry::{global, KeyValue};
 use std::sync::Arc;
 use tokio::time::Instant;
 use tracing::{field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use ulid::Ulid;
-pub struct DecoratedUserRepository<U: UserRepository> {
+
+pub struct DecoratedUserRepository<U: UsersRepository> {
     user_repo: U,
 }
 
@@ -22,27 +26,20 @@ impl DecoratedUserRepository<MongoUserRepository> {
     }
 }
 
-impl<U: UserRepository + 'static> DecoratedUserRepository<U> {
+impl<U: UsersRepository + 'static> DecoratedUserRepository<U> {
     pub fn cached<C: CacheService>(
         self,
         cache_service: Arc<C>,
     ) -> DecoratedUserRepository<CachedUserRepository<U, C>> {
-        let cached_repo = CachedUserRepository::new(self.user_repo, cache_service);
-
         DecoratedUserRepository {
-            user_repo: cached_repo,
+            user_repo: CachedUserRepository::new(self.user_repo, cache_service),
         }
     }
 
-    pub fn observable(
-        self,
-        registry: &Registry,
-    ) -> Result<DecoratedUserRepository<ObservableUserRepository<U>>, errors::ObservabilityError> {
-        let observable_repo = ObservableUserRepository::new(self.user_repo, registry)?;
-
-        Ok(DecoratedUserRepository {
-            user_repo: observable_repo,
-        })
+    pub fn observable(self) -> DecoratedUserRepository<ObservableUsersRepository<U>> {
+        DecoratedUserRepository {
+            user_repo: ObservableUsersRepository::new(self.user_repo),
+        }
     }
 
     pub fn build(self) -> U {
@@ -50,51 +47,37 @@ impl<U: UserRepository + 'static> DecoratedUserRepository<U> {
     }
 }
 
-
-
-#[derive(Clone)]
-pub struct ObservableUserRepository<U: UserRepository> {
+pub struct ObservableUsersRepository<U: UsersRepository> {
     inner: U,
-    request_count: IntCounterVec,
-    request_latency: HistogramVec,
+    request_count: Counter<u64>,
+    request_latency: Histogram<f64>,
 }
 
-impl<U: UserRepository> ObservableUserRepository<U> {
-    pub fn new(inner: U, registry: &Registry) -> Result<Self, errors::ObservabilityError> {
-        const EXPONENTIAL_SECONDS: &[f64] = &[
+impl<U: UsersRepository> ObservableUsersRepository<U> {
+    pub fn new(inner: U) -> Self {
+        let boundaries = vec![
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
-        let request_count = IntCounterVec::new(
-            Opts::new(
-                "user_repo_requests_total",
-                "Total requests to UserRepository",
-            ),
-            &["method", "operation", "status"],
-        )
-        .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
 
-        let request_latency = HistogramVec::new(
-            prometheus::HistogramOpts::new(
-                "user_repo_request_duration_seconds",
-                "Latency of UserRepository methods",
-            )
-            .buckets(EXPONENTIAL_SECONDS.to_vec()),
-            &["method", "operation"],
-        )
-        .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let meter_provider = global::meter("media-service");
+        let request_count = meter_provider
+            .u64_counter("users_repo_requests_total")
+            .with_description("Total requests to UsersRepository")
+            .with_unit("UsersRepository")
+            .build();
 
-        registry
-            .register(Box::new(request_count.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-        registry
-            .register(Box::new(request_latency.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let request_latency = meter_provider
+            .f64_histogram("users_repo_request_duration_seconds")
+            .with_description("Latency of UsersRepository methods")
+            .with_boundaries(boundaries)
+            .with_unit("UsersRepository")
+            .build();
 
-        Ok(Self {
+        Self {
             inner,
             request_count,
             request_latency,
-        })
+        }
     }
 
     async fn track_method<T, F, E: errors::ProblemResponse + ToString>(
@@ -103,6 +86,7 @@ impl<U: UserRepository> ObservableUserRepository<U> {
         query_summary: &str,
         operation_name: &str,
         target: &str,
+        user_id: Option<&str>,
         operation: F,
     ) -> Result<T, E>
     where
@@ -112,58 +96,45 @@ impl<U: UserRepository> ObservableUserRepository<U> {
         let span = info_span!(
             "",
             "otel.name" = query_summary,
-            "otel.king" = "client",
-            "db.system" = "mongodb",
-            "db.operation" = operation_name,
+            "otel.kind" = ?SpanKind::Client,
+            "db.system.name" = "postgresql",
+            "db.operation.name" = operation_name,
             "db.target" = target,
             "method.name" = method_name,
+            "user_id" = user_id,
             "error.message" = field::Empty,
             "error.type" = field::Empty,
         );
 
         let result = operation.await;
-
         let status = if result.is_ok() { "success" } else { "error" };
-        self.request_count
-            .with_label_values(&[method_name, operation_name, status])
-            .inc();
+        let mut attributes = vec![
+            KeyValue::new("method", method_name.to_string()),
+            KeyValue::new("operation", operation_name.to_string()),
+        ];
 
         self.request_latency
-            .with_label_values(&[method_name, operation_name])
-            .observe(start_time.elapsed().as_secs_f64());
+            .record(start_time.elapsed().as_secs_f64(), &attributes);
 
-        if let Err(ref err) = result {
-            if err.status_code() == axum::http::StatusCode::INTERNAL_SERVER_ERROR {
-                span.record("error.type", "database_error")
-                    .set_status(opentelemetry::trace::Status::error(err.to_string()));
-                return result;
-            }
-        }
+        attributes.push(KeyValue::new("status", status));
+        self.request_count.add(1, &attributes);
 
+        let result = trace_server_error(result, &span, "database_error")?;
         span.set_status(opentelemetry::trace::Status::Ok);
-        result
+
+        Ok(result)
     }
 }
 
 #[async_trait]
-impl<U: UserRepository + 'static> UserRepository for ObservableUserRepository<U> {
-    async fn start_session(&self) -> Result<ClientSession, AppError> {
-        self.track_method(
-            "start_session",
-            "mongo.start_session users",
-            "start_session",
-            "sessions",
-            self.inner.start_session(),
-        )
-        .await
-    }
-
-    async fn create(&self, user_id: &Ulid) -> Result<(), AppError> {
+impl<U: UsersRepository + 'static> UsersRepository for ObservableUsersRepository<U> {
+    async fn create(&self, user_id: Ulid) -> Result<(), AppError> {
         self.track_method(
             "create",
             "mongo.insert_one users",
             "insert_one",
             "users",
+            Some(&user_id.to_string()),
             self.inner.create(user_id),
         )
         .await
@@ -175,29 +146,31 @@ impl<U: UserRepository + 'static> UserRepository for ObservableUserRepository<U>
             "mongo.count_documents users",
             "count_documents",
             "users",
+            Some(&user_id.to_string()),
             self.inner.exists(user_id),
         )
         .await
     }
 
-    async fn delete(&self, user_id: &Ulid, session: &mut ClientSession) -> Result<(), AppError> {
+    async fn delete(&self, user_id: &Ulid) -> Result<(), AppError> {
         self.track_method(
             "delete",
             "mongo.delete_one users",
             "delete_one",
             "users",
-            self.inner.delete(user_id, session),
+            Some(&user_id.to_string()),
+            self.inner.delete(user_id),
         )
         .await
     }
 }
 
-pub struct CachedUserRepository<U: UserRepository, C: CacheService> {
+pub struct CachedUserRepository<U: UsersRepository, C: CacheService> {
     inner: U,
     cache_service: Arc<C>,
 }
 
-impl<U: UserRepository, C: CacheService> CachedUserRepository<U, C> {
+impl<U: UsersRepository, C: CacheService> CachedUserRepository<U, C> {
     pub fn new(inner: U, cache_service: Arc<C>) -> Self {
         Self {
             inner,
@@ -207,12 +180,8 @@ impl<U: UserRepository, C: CacheService> CachedUserRepository<U, C> {
 }
 
 #[async_trait]
-impl<U: UserRepository, C: CacheService> UserRepository for CachedUserRepository<U, C> {
-    async fn start_session(&self) -> Result<ClientSession, AppError> {
-        self.inner.start_session().await
-    }
-
-    async fn create(&self, user_id: &Ulid) -> Result<(), AppError> {
+impl<U: UsersRepository, C: CacheService> UsersRepository for CachedUserRepository<U, C> {
+    async fn create(&self, user_id: Ulid) -> Result<(), AppError> {
         self.inner.create(user_id).await
     }
 
@@ -226,7 +195,7 @@ impl<U: UserRepository, C: CacheService> UserRepository for CachedUserRepository
             return Ok(cached_bool);
         }
 
-        let exists = self.inner.exists(&user_id).await?;
+        let exists = self.inner.exists(user_id).await?;
         self.cache_service
             .hset("user-exists", cache_key, &exists)
             .await?;
@@ -234,9 +203,9 @@ impl<U: UserRepository, C: CacheService> UserRepository for CachedUserRepository
         Ok(exists)
     }
 
-    async fn delete(&self, user_id: &Ulid, session: &mut ClientSession) -> Result<(), AppError> {
+    async fn delete(&self, user_id: &Ulid) -> Result<(), AppError> {
         let cache_key = &user_id.to_string();
-        self.inner.delete(user_id, session).await?;
+        self.inner.delete(user_id).await?;
 
         self.cache_service.hdelete("users", cache_key).await?;
         self.cache_service.hdelete("user-exists", cache_key).await?;

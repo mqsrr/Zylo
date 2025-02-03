@@ -2,13 +2,25 @@ name: "Build Notification Service"
 
 on:
   push:
+    branches:
+      - main
     paths:
-      - 'notification-service/**'
-      - '.github/notification-service.yml'
+      - 'src/notification-service/**'
+      - '.github/workflows/notification-service.yml'
+    tags:
+      - 'notification-service/v*.*.*'
   pull_request:
+    branches:
+      - main
     paths:
-      - 'notification-service/**'
-      - '.github/notification-service.yml'
+      - 'src/notification-service/**'
+      - '.github/workflows/notification-service.yml'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  
 jobs:
   build:
     runs-on: ubuntu-latest

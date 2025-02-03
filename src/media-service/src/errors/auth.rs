@@ -16,11 +16,13 @@ impl ProblemResponse for AuthError {
         StatusCode::UNAUTHORIZED
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
         "Authentication Error"
     }
 
     fn detail(&self) -> String {
         self.to_string()
     }
+    
+    
 }

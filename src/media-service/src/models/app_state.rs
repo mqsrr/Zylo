@@ -1,6 +1,6 @@
 use crate::errors;
 use crate::repositories::post_repo::PostRepository;
-use crate::repositories::user_repo::UserRepository;
+use crate::repositories::user_repo::UsersRepository;
 use crate::services::amq::AmqClient;
 use crate::services::cache_service::CacheService;
 use crate::settings::AppConfig;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub struct AppState<P, U, C, A>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -23,7 +23,7 @@ where
 impl<P, U, C, A> Clone for AppState<P, U, C, A>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -41,7 +41,7 @@ where
 impl<P, U, C, A> AppState<P, U, C, A>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {

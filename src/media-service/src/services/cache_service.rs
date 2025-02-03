@@ -157,11 +157,13 @@ impl CacheService for RedisCacheService {
             fields_to_delete.push(field);
         }
 
+        if fields_to_delete.is_empty() { 
+            return Ok(());
+        }
+        
         del_conn
             .hdel::<_, _, ()>(key, fields_to_delete)
             .await
-            .map_err(|r| errors::redis_op_error("HDEL", key, r))?;
-
-        Ok(())
+            .map_err(|r| errors::redis_op_error("HDEL", key, r))
     }
 }

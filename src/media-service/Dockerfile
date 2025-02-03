@@ -15,6 +15,6 @@ FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /usr/src/media-service/target/release/media-service /usr/local/bin/media-service
 
 EXPOSE 8080
-EXPOSE 50052
+EXPOSE 50051
 
 CMD ["/usr/local/bin/media-service"]

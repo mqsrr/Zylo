@@ -27,7 +27,7 @@ pub async fn authorization_middleware(
     let auth_token = req
         .headers()
         .get("Authorization")
-        .ok_or_else(|| errors::AuthError::TokenNotFound)?
+        .ok_or(errors::AuthError::TokenNotFound)?
         .to_str()
         .map_err(|_| errors::AuthError::TokenNotFound)?;
 

@@ -1,16 +1,18 @@
 use crate::errors;
-use crate::errors::S3Error;
 use crate::models::file::{File, FileMetadata, PresignedUrl};
 use crate::services::cache_service::CacheService;
 use crate::services::s3_service::{S3FileService, S3Service};
 use crate::settings::S3Settings;
 use async_trait::async_trait;
-use prometheus::{HistogramVec, IntCounterVec, Opts, Registry};
 use std::sync::Arc;
+use opentelemetry::{global, KeyValue};
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::trace::SpanKind;
 use tokio::time::Instant;
 use tracing::log::warn;
 use tracing::{field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use crate::decorators::trace_server_error;
 
 pub struct DecoratedS3ServiceBuilder<S: S3Service> {
     s3_service: S,
@@ -38,13 +40,10 @@ impl<S: S3Service + 'static> DecoratedS3ServiceBuilder<S> {
 
     pub fn observable(
         self,
-        registry: &Registry,
-    ) -> Result<DecoratedS3ServiceBuilder<ObservableS3Service<S>>, errors::ObservabilityError> {
-        let observable_repo = ObservableS3Service::new(self.s3_service, registry)?;
-
-        Ok(DecoratedS3ServiceBuilder {
-            s3_service: observable_repo,
-        })
+    ) -> DecoratedS3ServiceBuilder<ObservableS3Service<S>> {
+        DecoratedS3ServiceBuilder {
+            s3_service: ObservableS3Service::new(self.s3_service),
+        }
     }
 
     pub fn build(self) -> S {
@@ -52,46 +51,37 @@ impl<S: S3Service + 'static> DecoratedS3ServiceBuilder<S> {
     }
 }
 
-#[derive(Clone)]
 pub struct ObservableS3Service<S: S3Service> {
     inner: S,
-    request_count: IntCounterVec,
-    request_latency: HistogramVec,
+    request_count: Counter<u64>,
+    request_latency: Histogram<f64>,
 }
 
 impl<S: S3Service> ObservableS3Service<S> {
-    pub fn new(inner: S, registry: &Registry) -> Result<Self, errors::ObservabilityError> {
-        const EXPONENTIAL_SECONDS: &[f64] = &[
+    pub fn new(inner: S) -> Self{
+        let boundaries = vec![
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
-        let request_count = IntCounterVec::new(
-            Opts::new("s3_service_requests_total", "Total requests to S3Service"),
-            &["method", "operation", "status"],
-        )
-        .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
 
-        let request_latency = HistogramVec::new(
-            prometheus::HistogramOpts::new(
-                "s3_service_request_duration_seconds",
-                "Latency of S3Service methods",
-            )
-            .buckets(EXPONENTIAL_SECONDS.to_vec()),
-            &["method", "operation"],
-        )
-        .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let meter_provider = global::meter("media-service");
+        let request_count = meter_provider
+            .u64_counter("s3_service_requests_total")
+            .with_description("Total requests to S3 Service")
+            .with_unit("S3Service")
+            .build();
 
-        registry
-            .register(Box::new(request_count.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-        registry
-            .register(Box::new(request_latency.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let request_latency = meter_provider
+            .f64_histogram("s3_service_request_duration_seconds")
+            .with_description("Latency of S3Service methods")
+            .with_boundaries(boundaries)
+            .with_unit("S3Service")
+            .build();
 
-        Ok(Self {
+        Self {
             inner,
             request_count,
             request_latency,
-        })
+        }
     }
 
     async fn track_method<T, F, E: errors::ProblemResponse + ToString>(
@@ -109,7 +99,7 @@ impl<S: S3Service> ObservableS3Service<S> {
         let span = info_span!(
             "",
             "otel.name" = query_summary,
-            "otel.king" = "client",
+            "otel.kind" = ?SpanKind::Client,
             "rpc.system" = "aws-api",
             "rpc.service" = "S3",
             "aws.s3.key" = s3_key,
@@ -119,33 +109,29 @@ impl<S: S3Service> ObservableS3Service<S> {
             "error.type" = field::Empty,
         );
 
-        let result = operation.await;
 
+        let result = operation.await;
         let status = if result.is_ok() { "success" } else { "error" };
-        self.request_count
-            .with_label_values(&[method_name, method, status])
-            .inc();
+        let mut attributes = vec![
+            KeyValue::new("method", method_name.to_string()),
+        ];
 
         self.request_latency
-            .with_label_values(&[method_name, method])
-            .observe(start_time.elapsed().as_secs_f64());
+            .record(start_time.elapsed().as_secs_f64(), &attributes);
 
-        if let Err(ref err) = result {
-            if err.status_code() == axum::http::StatusCode::INTERNAL_SERVER_ERROR {
-                span.record("error.type", "database_error")
-                    .set_status(opentelemetry::trace::Status::error(err.to_string()));
-                return result;
-            }
-        }
+        attributes.push(KeyValue::new("status", status));
+        self.request_count.add(1, &attributes);
 
+        let result = trace_server_error(result, &span, "database_error")?;
         span.set_status(opentelemetry::trace::Status::Ok);
-        result
+        
+        Ok(result)
     }
 }
 
 #[async_trait]
 impl<S: S3Service> S3Service for ObservableS3Service<S> {
-    async fn upload(&self, file: File) -> Result<FileMetadata, S3Error> {
+    async fn upload(&self, file: File) -> Result<FileMetadata, errors::S3Error> {
         self.track_method(
             "upload",
             "s3.upload media file",
@@ -156,7 +142,7 @@ impl<S: S3Service> S3Service for ObservableS3Service<S> {
         .await
     }
 
-    async fn delete(&self, key: &str) -> Result<(), S3Error> {
+    async fn delete(&self, key: &str) -> Result<(), errors::S3Error> {
         self.track_method(
             "delete",
             "s3.delete media file",
@@ -167,7 +153,7 @@ impl<S: S3Service> S3Service for ObservableS3Service<S> {
         .await
     }
 
-    async fn get_presigned_url(&self, key: &str) -> Result<PresignedUrl, S3Error> {
+    async fn get_presigned_url(&self, key: &str) -> Result<PresignedUrl, errors::S3Error> {
         self.track_method(
             "get_presigned_url",
             "s3.presign_url media file",
@@ -195,11 +181,11 @@ impl<S: S3Service, C: CacheService> CachedS3Service<S, C> {
 
 #[async_trait]
 impl<S: S3Service, C: CacheService> S3Service for CachedS3Service<S, C> {
-    async fn upload(&self, file: File) -> Result<FileMetadata, S3Error> {
+    async fn upload(&self, file: File) -> Result<FileMetadata, errors::S3Error> {
         self.inner.upload(file).await
     }
 
-    async fn delete(&self, key: &str) -> Result<(), S3Error> {
+    async fn delete(&self, key: &str) -> Result<(), errors::S3Error> {
         self.inner.delete(key).await?;
         let hash_key = "s3-media";
         if self.cache_service.hdelete(hash_key, key).await.is_err() {
@@ -212,7 +198,7 @@ impl<S: S3Service, C: CacheService> S3Service for CachedS3Service<S, C> {
         Ok(())
     }
 
-    async fn get_presigned_url(&self, key: &str) -> Result<PresignedUrl, S3Error> {
+    async fn get_presigned_url(&self, key: &str) -> Result<PresignedUrl, errors::S3Error> {
         if let Some(cached_url) = self
             .cache_service
             .hget("s3-media", key)

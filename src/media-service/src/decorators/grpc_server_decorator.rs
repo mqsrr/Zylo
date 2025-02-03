@@ -1,8 +1,9 @@
-use prometheus::{HistogramVec, IntCounterVec, Opts, Registry};
+use opentelemetry::{global, KeyValue};
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::trace::SpanKind;
 use tonic::{Code, Request, Response, Status};
 use tracing::{field, info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use crate::errors;
 use crate::repositories::post_repo::PostRepository;
 use crate::services::grpc_server::GrpcPostServer;
 use crate::services::grpc_server::post_server::post_service_server::PostService;
@@ -10,45 +11,35 @@ use crate::services::grpc_server::post_server::{BatchPostsRequest, PaginatedPost
 
 pub struct ObservablePostServer<P: PostService + 'static> {
     inner: P,
-    request_count: IntCounterVec,
-    request_latency: HistogramVec,
+    request_count: Counter<u64>,
+    request_latency: Histogram<f64>,
 }
 
 impl<P: PostService + 'static> ObservablePostServer<P> {
-    pub fn new(inner: P, registry: &Registry) -> Result<Self, errors::ObservabilityError> {
-        const LATENCY_BUCKETS: &[f64] = &[
+    pub fn new(inner: P) -> Self {
+        let boundaries = vec![
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
 
-        let request_count = IntCounterVec::new(
-            Opts::new("grpc_requests_total", "Total gRPC requests processed"),
-            &["method", "status"],
-        )
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let meter_provider = global::meter("media-service");
+        let request_count = meter_provider
+            .u64_counter("post_server_requests_total")
+            .with_description("Total requests to Grpc Posts Server")
+            .with_unit("PostService")
+            .build();
 
-        let request_latency = HistogramVec::new(
-            prometheus::HistogramOpts::new(
-                "grpc_request_duration_seconds",
-                "Latency of gRPC methods",
-            )
-                .buckets(LATENCY_BUCKETS.to_vec()),
-            &["method"],
-        )
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let request_latency = meter_provider
+            .f64_histogram("post_server_request_duration_seconds")
+            .with_description("Latency of Grpc Posts Server methods")
+            .with_boundaries(boundaries)
+            .with_unit("PostService")
+            .build();
 
-        registry
-            .register(Box::new(request_count.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-
-        registry
-            .register(Box::new(request_latency.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-
-        Ok(Self {
+        Self {
             inner,
             request_count,
             request_latency,
-        })
+        }
     }
 
     async fn track_method<T, F>(
@@ -60,43 +51,53 @@ impl<P: PostService + 'static> ObservablePostServer<P> {
         F: std::future::Future<Output = Result<Response<T>, Status>>,
     {
         let start_time = tokio::time::Instant::now();
+        let service = format!("{}.{}", "post_service", "PostService");
         let span = info_span!(
             "",
-            "otel.name" = format!(
-                "{package}.{service}/{method}",
-                package = "post_server",
-                service = "PostService",
-                method = method_name
-            ),
-            "otel.kind" = "server",
+            "otel.name" = format!("{}/{}",service,method_name),
+            "otel.kind" = ?SpanKind::Server,
             "rpc.system" = "grpc",
+            "server.address" = "127.0.0.1",
+            "server.port" = "50051",
             "network.transport" = "udp",
             "rpc.method" = method_name,
-            "rcp.service" = format!(
-                "{package}.{service}",
-                package = "post_server",
-                service = "PostService"
-            ),
+            "rcp.service" = &service,
+            "rpc.grpc.status_code" = field::Empty,
             "error.type" = field::Empty
         );
 
         let result = operation.instrument(span.clone()).await;
+        let status = if result.is_ok() { "success" } else { "error" };
 
-        let status_label = if result.is_ok() { "success" } else { "error" };
-        self.request_count
-            .with_label_values(&[method_name, status_label])
-            .inc();
+        let mut attributes = vec![
+            KeyValue::new("method", method_name.to_string()),
+            KeyValue::new("operation", method_name.to_string()),
+        ];
 
         self.request_latency
-            .with_label_values(&[method_name])
-            .observe(start_time.elapsed().as_secs_f64());
+            .record(start_time.elapsed().as_secs_f64(), &attributes);
+
+        attributes.push(KeyValue::new("status", status));
+        self.request_count.add(1, &attributes);
 
         if let Err(ref err) = result {
-            if err.code() == Code::Internal {
-                span.record("error.type", "grpc_server_error")
-                    .set_status(opentelemetry::trace::Status::error(err.to_string()));
-                return result;
+            let code = err.code();
+            span.record("rpc.grpc.status_code", code.to_string());
+
+            match code {
+                Code::Unknown
+                | Code::DeadlineExceeded
+                | Code::Unimplemented
+                | Code::Internal
+                | Code::Unavailable
+                | Code::DataLoss => {
+                    span.record("error.type", "grpc_server_error")
+                        .set_status(opentelemetry::trace::Status::error(err.to_string()));
+                }
+                _ => {}
             }
+
+            return result;
         }
 
         span.set_status(opentelemetry::trace::Status::Ok);

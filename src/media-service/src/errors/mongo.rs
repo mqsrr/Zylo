@@ -5,7 +5,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum MongoError {
     #[error("Database error: {0}")]
-    DatabaseError(String),
+    DatabaseError(#[from] mongodb::error::Error),
 
     #[error("{0}")]
     NotFound(String),
@@ -20,10 +20,10 @@ impl ProblemResponse for MongoError {
         }
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
         match self {
-            MongoError::DatabaseError(_) => "Database Error",
-            MongoError::NotFound(_) => "Resource Not Found",
+            MongoError::DatabaseError(_) => "Internal Server Error",
+            MongoError::NotFound(_) => "Not Found",
         }
     }
 
@@ -31,10 +31,10 @@ impl ProblemResponse for MongoError {
         self.to_string()
     }
 
-    fn public_detail(&self) -> &str {
+    fn public_detail(&self) -> String {
         match self {
-            MongoError::NotFound(err) => err,
-            _ => "An unexpected server error occurred. Please try again later."
+            MongoError::NotFound(err) => err.clone(),
+            _ => self.public_detail()
         }
     }
 }

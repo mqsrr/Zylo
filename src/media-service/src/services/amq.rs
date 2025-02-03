@@ -1,7 +1,7 @@
 use crate::errors;
 use crate::models::event_messages::{UserCreatedMessage, UserDeletedMessage};
 use crate::repositories::post_repo::PostRepository;
-use crate::repositories::user_repo::UserRepository;
+use crate::repositories::user_repo::UsersRepository;
 use crate::settings::RabbitMq;
 use crate::utils::constants::{POST_EXCHANGE_NAME, USER_EXCHANGE_NAME};
 use crate::utils::helpers::Finalizer;
@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use futures_util::Future;
 use futures_util::StreamExt;
 use lapin::options::{
-    BasicAckOptions, BasicConsumeOptions, BasicPublishOptions, ExchangeDeclareOptions,
-    QueueBindOptions, QueueDeclareOptions,
+    BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicPublishOptions,
+    ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions,
 };
 use lapin::types::FieldTable;
 use lapin::{BasicProperties, Channel, Connection, ConnectionProperties};
@@ -31,10 +31,7 @@ pub trait AmqClient: Send + Sync + Finalizer {
         event: &T,
     ) -> Result<(), errors::AmqError>;
 
-    async fn setup_listeners<
-        U: UserRepository + 'static,
-        P: PostRepository + 'static
-    >(
+    async fn setup_listeners<U: UsersRepository + 'static, P: PostRepository + 'static>(
         &self,
         user_repo: Arc<U>,
         post_repo: Arc<P>,
@@ -43,18 +40,15 @@ pub trait AmqClient: Send + Sync + Finalizer {
 
 #[async_trait]
 pub trait AmqConsumer: Send + Sync {
-    async fn consume_user_created<U: UserRepository + 'static>(
+    async fn consume_user_created<U: UsersRepository + 'static>(
         &self,
         user_repo: Arc<U>,
     ) -> Result<(), errors::AppError>;
 
-    async fn consume_user_deleted<
-        U: UserRepository + 'static,
-        P: PostRepository + 'static,
-    >(
+    async fn consume_user_deleted<U: UsersRepository + 'static, P: PostRepository + 'static>(
         &self,
         user_repo: Arc<U>,
-        post_repo: Arc<P>
+        post_repo: Arc<P>,
     ) -> Result<(), errors::AppError>;
 }
 
@@ -115,6 +109,15 @@ impl RabbitMqClient {
                                     "Failed to deserialize message from {}: {}",
                                     queue_name, err
                                 );
+
+                                let options = BasicNackOptions {
+                                    requeue: false,
+                                    ..Default::default()
+                                };
+                                if let Err(err) = delivery.nack(options).await {
+                                    error!("Failed to nack message from {}: {}", queue_name, err);
+                                }
+
                                 continue;
                             }
                         };
@@ -140,34 +143,23 @@ impl RabbitMqClient {
         Ok(())
     }
 
-    async fn handle_user_created<U: UserRepository + 'static>(
+    async fn handle_user_created<U: UsersRepository + 'static>(
         event: UserCreatedMessage,
         user_repo: Arc<U>,
     ) -> Result<(), errors::AppError> {
-        user_repo.create(&event.id).await
+        user_repo.create(event.id).await
     }
 
-    async fn handle_user_deleted<U: UserRepository + 'static, P: PostRepository + 'static>(
+    async fn handle_user_deleted<U: UsersRepository + 'static, P: PostRepository + 'static>(
         event: UserDeletedMessage,
         user_repo: Arc<U>,
         post_repo: Arc<P>,
     ) -> Result<(), errors::AppError> {
         let user_id = event.id;
-        let mut session = user_repo.start_session().await?;
 
-        session.start_transaction().await.map_err(|_| {
-            errors::AppError::Internal("Could not start mongo transaction!".to_string())
-        })?;
-
-        post_repo
-            .delete_all_from_user(&user_id, &mut session)
-            .await?;
-
-        user_repo.delete(&user_id, &mut session).await?;
-        session.commit_transaction().await.map_err(|_| {
-            errors::AppError::Internal("Could not delete all data about user".to_string())
-        })?;
-
+        post_repo.delete_all_from_user(&user_id).await?;
+        user_repo.delete(&user_id).await?;
+    
         Ok(())
     }
 }
@@ -258,7 +250,7 @@ impl AmqClient for RabbitMqClient {
         Ok(())
     }
 
-    async fn setup_listeners<U: UserRepository + 'static, P: PostRepository + 'static>(
+    async fn setup_listeners<U: UsersRepository + 'static, P: PostRepository + 'static>(
         &self,
         user_repo: Arc<U>,
         post_repo: Arc<P>,
@@ -273,7 +265,7 @@ impl AmqClient for RabbitMqClient {
 
 #[async_trait]
 impl AmqConsumer for RabbitMqClient {
-    async fn consume_user_created<U: UserRepository + 'static>(
+    async fn consume_user_created<U: UsersRepository + 'static>(
         &self,
         user_repo: Arc<U>,
     ) -> Result<(), errors::AppError> {
@@ -289,7 +281,7 @@ impl AmqConsumer for RabbitMqClient {
         .await
     }
 
-    async fn consume_user_deleted<U: UserRepository + 'static, P: PostRepository + 'static>(
+    async fn consume_user_deleted<U: UsersRepository + 'static, P: PostRepository + 'static>(
         &self,
         user_repo: Arc<U>,
         post_repo: Arc<P>,

@@ -1,48 +1,42 @@
 use crate::errors;
 use async_trait::async_trait;
-use mongodb::bson::doc;
-use mongodb::{ClientSession, Collection, Database};
+use mongodb::bson::{doc};
+use mongodb::{Collection, Database};
+use serde::Serialize;
 use ulid::Ulid;
 
+#[derive(Serialize)]
+struct UserIdRow {
+    _id: Ulid
+}
+
 #[async_trait]
-pub trait UserRepository: Send + Sync {
-    async fn start_session(&self) -> Result<ClientSession, errors::AppError>;
-    async fn create(&self, user_id: &Ulid) -> Result<(), errors::AppError>;
+pub trait UsersRepository: Send + Sync {
+    async fn create(&self, user_id: Ulid) -> Result<(), errors::AppError>;
     async fn exists(&self, user_id: &Ulid) -> Result<bool, errors::AppError>;
     async fn delete(
         &self,
         user_id: &Ulid,
-        session: &mut ClientSession,
     ) -> Result<(), errors::AppError>;
 }
 
 pub struct MongoUserRepository {
-    db: Database,
-    collection: Collection<Ulid>,
+    collection: Collection<UserIdRow>,
 }
 
 impl MongoUserRepository {
     pub fn new(db: Database) -> Self {
-        let collection = db.collection::<Ulid>("users");
-        Self { db, collection }
+        Self { collection: db.collection::<UserIdRow>("users") }
     }
 }
 
 #[async_trait]
-impl UserRepository for MongoUserRepository {
-    async fn start_session(&self) -> Result<ClientSession, errors::AppError> {
-        Ok(self.db
-            .client()
-            .start_session()
-            .await
-            .map_err(|err| errors::MongoError::DatabaseError(err.to_string()))?)
-    }
-
-    async fn create(&self, user_id: &Ulid) -> Result<(), errors::AppError> {
+impl UsersRepository for MongoUserRepository {
+    async fn create(&self, user_id: Ulid) -> Result<(), errors::AppError> {
         self.collection
-            .insert_one(user_id)
+            .insert_one(UserIdRow{_id: user_id})
             .await
-            .map_err(|err| errors::MongoError::DatabaseError(err.to_string()))?;
+            .map_err(errors::MongoError::DatabaseError)?;
 
         Ok(())
     }
@@ -53,7 +47,7 @@ impl UserRepository for MongoUserRepository {
             .collection
             .count_documents(filter)
             .await
-            .map_err(|err| errors::MongoError::DatabaseError(err.to_string()))?;
+            .map_err(errors::MongoError::DatabaseError)?;
 
         Ok(count > 0)
     }
@@ -61,18 +55,18 @@ impl UserRepository for MongoUserRepository {
     async fn delete(
         &self,
         user_id: &Ulid,
-        session: &mut ClientSession,
     ) -> Result<(), errors::AppError> {
         let filter = doc! { "_id": user_id.to_string() };
         let result = self
             .collection
             .delete_one(filter)
-            .session(session)
             .await
-            .map_err(|err| errors::MongoError::DatabaseError(err.to_string()))?;
+            .map_err(errors::MongoError::DatabaseError)?;
 
         if result.deleted_count == 0 {
-            return Err(errors::MongoError::NotFound("User with given id could not be found".to_string()))?;
+            return Err(errors::MongoError::NotFound(
+                "User with given id could not be found".to_string(),
+            ))?;
         }
 
         Ok(())

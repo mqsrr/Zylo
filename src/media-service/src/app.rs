@@ -1,24 +1,24 @@
 use crate::auth::authorization_middleware;
 use crate::models::app_state::AppState;
 use crate::repositories::post_repo::PostRepository;
-use crate::repositories::user_repo::UserRepository;
+use crate::repositories::user_repo::UsersRepository;
 use crate::routes::post;
 use crate::services::amq::AmqClient;
 use crate::services::cache_service::CacheService;
-use crate::services::grpc_server::post_server;
 use crate::services::grpc_server::post_server::post_service_server::{
     PostService, PostServiceServer,
 };
 use crate::utils::constants::REQUEST_ID_HEADER;
 use axum::http::{header, HeaderName, Request};
-use axum::routing::get;
 use axum::{middleware, Router};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::TracerProvider;
 use opentelemetry_sdk::Resource;
-use prometheus::{Encoder, Registry, TextEncoder};
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tonic::transport::Server;
@@ -37,6 +37,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 pub fn init_tracing() -> TracerProvider {
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
+        .with_endpoint("http://localhost:4317")
         .build()
         .unwrap();
 
@@ -46,26 +47,12 @@ pub fn init_tracing() -> TracerProvider {
     ]);
 
     let provider = TracerProvider::builder()
-        .with_resource(resource)
+        .with_resource(resource.clone())
         .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
         .build();
 
     global::set_tracer_provider(provider.clone());
     provider
-}
-
-pub fn init_prometheus() -> Registry {
-    let registry = Registry::new();
-    registry
-}
-
-pub async fn metrics_handler(registry: Registry) -> impl axum::response::IntoResponse {
-    let encoder = TextEncoder::new();
-    let metric_families = registry.gather();
-    let mut buffer = Vec::new();
-
-    encoder.encode(&metric_families, &mut buffer).unwrap();
-    String::from_utf8(buffer).unwrap()
 }
 
 pub fn init_trace(provider: &TracerProvider) {
@@ -77,13 +64,42 @@ pub fn init_trace(provider: &TracerProvider) {
         .init();
 }
 
+pub fn init_meter() -> SdkMeterProvider {
+    let resource = Resource::new(vec![
+        KeyValue::new("service.name", "user-interaction"),
+        KeyValue::new("service.version", "1.0.0"),
+    ]);
+
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://localhost:4317")
+        .with_timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+
+    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(
+        exporter,
+        opentelemetry_sdk::runtime::Tokio,
+    )
+    .with_interval(Duration::from_secs(3))
+    .with_timeout(Duration::from_secs(10))
+    .build();
+
+    let provider = SdkMeterProvider::builder()
+        .with_reader(reader)
+        .with_resource(resource)
+        .build();
+
+    global::set_meter_provider(provider.clone());
+    provider
+}
+
 pub async fn create_router<P, U, C, A>(
     app_state: AppState<P, U, C, A>,
-    registry: Registry,
 ) -> Router
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -95,30 +111,38 @@ where
         ))
         .layer(
             trace::TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<_>| {
-                    let request_id = request.headers().get(REQUEST_ID_HEADER);
-                    let request_uri = request.uri();
-                    let span = info_span!(
-                        "",
-                        "otel.name" = format!(
-                            "{method} {target}",
-                            method = request.method().as_str(),
-                            target = request_uri.path()
-                        ),
-                        "otel.kind" = "server",
-                        "http.request.id" = field::Empty,
-                        "url.query" = field::Empty
-                    );
+                .make_span_with({
+                    let server_port = app_state.config.server.port.to_string();
+                    move |request: &Request<_>| {
+                        let request_id = request.headers().get(REQUEST_ID_HEADER);
+                        let request_uri = request.uri();
+                        let request_path = request_uri.path();
+                        let method = request.method().to_string();
+                        let span = info_span!(
+                            "",
+                            "otel.name" = format!("{} {}", &method, &request_path),
+                            "http.request.method" = &method,
+                            "http.request.method_original" = &method,
+                            "server.address" = "0.0.0.0",
+                            "server.port" = server_port,
+                            "url.full" = request_uri.to_string(),
+                            "otel.kind" = "server",
+                            "http.request.id" = field::Empty,
+                            "url.query" = field::Empty,
+                            "http.response.status_code" = field::Empty,
+                            "http.response.content_length" = field::Empty
+                        );
 
-                    if let Some(query) = request_uri.query() {
-                        span.record("url.query", query);
+                        if let Some(query) = request_uri.query() {
+                            span.record("url.query", query);
+                        }
+
+                        if let Some(request_id) = request_id {
+                            span.record("http.request.id", request_id.to_str().unwrap_or_default());
+                        }
+
+                        span
                     }
-
-                    if let Some(request_id) = request_id {
-                        span.record("http.request.id", request_id.to_str().unwrap_or_default());
-                    }
-
-                    span
                 })
                 .on_request(trace::DefaultOnRequest::new().level(tracing::Level::INFO))
                 .on_response(
@@ -132,7 +156,6 @@ where
 
     Router::new()
         .merge(post::create_router(app_state.clone()))
-        .route("/metrics", get(move || metrics_handler(registry)))
         .layer(middleware)
         .layer(middleware::from_fn_with_state(
             app_state.config.auth.clone(),
@@ -147,30 +170,23 @@ where
 pub async fn run_app<P, U, C, A>(
     app_state: AppState<P, U, C, A>,
     grpc_server: impl PostService,
-    registry: Registry,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
     let axum_address = SocketAddr::from(([0, 0, 0, 0], app_state.config.server.port));
-    let axum_app = create_router(app_state.clone(), registry).await;
+    let axum_app = create_router(app_state.clone()).await;
 
     let grpc_address = format!("[::1]:{}", app_state.config.grpc_server.port)
         .parse()
         .unwrap();
 
     info!("Starting gRPC server on {}", grpc_address);
-    let grpc_service_reflection = tonic_reflection::server::Builder::configure()
-        .register_encoded_file_descriptor_set(post_server::FILE_DESCRIPTOR_SET)
-        .build_v1()
-        .unwrap();
-
     let grpc_server_future = Server::builder()
         .add_service(PostServiceServer::new(grpc_server))
-        .add_service(grpc_service_reflection)
         .serve(grpc_address);
 
     info!("Starting Axum HTTP API server on {}", axum_address);
@@ -197,7 +213,7 @@ where
 async fn shutdown_signal<P, U, C, A>(app_state: AppState<P, U, C, A>)
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {

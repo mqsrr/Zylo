@@ -2,13 +2,24 @@ name: Build Feed Service
 
 on:
   push:
+    branches:
+      - main
     paths:
-      - 'feed-service/**'
-      - '.github/feed-service.yml'
+      - 'src/feed-service/**'
+      - '.github/workflows/feed-service.yml'
+    tags:
+      - 'feed-service/v*.*.*'
   pull_request:
+    branches:
+      - main
     paths:
-      - 'feed-service/**'
-      - '.github/feed-service.yml'
+      - 'src/feed-service/**'
+      - '.github/workflows/feed-service.yml'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
 
 jobs:
   build:

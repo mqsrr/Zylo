@@ -22,11 +22,20 @@ impl ProblemResponse for ValidationError {
         StatusCode::BAD_REQUEST
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
         "Validation Error"
     }
 
     fn detail(&self) -> String {
         self.to_string()
+    }
+
+    fn public_detail(&self) -> String {
+        match self {
+            ValidationError::Failed(err) => err.clone(),
+            ValidationError::InvalidUserId => self.detail(),
+            ValidationError::InvalidPostId => self.detail(),
+            ValidationError::InvalidUri(err) => err.clone()
+        }
     }
 }

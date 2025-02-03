@@ -1,48 +1,49 @@
+use crate::decorators::trace_server_error;
 use crate::errors;
 use crate::errors::AppError;
 use crate::models::post::{DeletedPostsIds, Post};
 use crate::repositories::post_repo::{MongoPostRepository, PostRepository};
 use crate::services::cache_service::CacheService;
+use crate::services::s3_service::S3Service;
 use crate::utils::request::{CreatePostRequest, PaginatedResponse, UpdatePostRequest};
 use async_trait::async_trait;
-use mongodb::{ClientSession, Database};
-use prometheus::{HistogramVec, IntCounterVec, Opts, Registry};
+use mongodb::Database;
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::{global, KeyValue};
 use std::sync::Arc;
 use tokio::time::Instant;
 use tracing::{field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use ulid::Ulid;
-use crate::services::s3_service::S3Service;
 
-pub struct DecoratedPostRepositoryBuilder<P: PostRepository>{
-    post_repo: P
+pub struct DecoratedPostRepositoryBuilder<P: PostRepository> {
+    post_repo: P,
 }
 
-impl<S: S3Service + 'static>  DecoratedPostRepositoryBuilder<MongoPostRepository<S>> {
-    pub fn new(db: &Database, s3_service: Arc<S>) -> Self{
-        Self{
-            post_repo: MongoPostRepository::new(db, s3_service)
+impl<S: S3Service + 'static> DecoratedPostRepositoryBuilder<MongoPostRepository<S>> {
+    pub fn new(db: &Database, s3_service: Arc<S>) -> Self {
+        Self {
+            post_repo: MongoPostRepository::new(db, s3_service),
         }
     }
 }
 
 impl<P: PostRepository + 'static> DecoratedPostRepositoryBuilder<P> {
-    pub fn cached<C: CacheService>(self, cache_service: Arc<C>) -> DecoratedPostRepositoryBuilder<CachedPostRepository<P, C>>{
-        let cached_repo = CachedPostRepository::new(self.post_repo, cache_service);
-
+    pub fn cached<C: CacheService>(
+        self,
+        cache_service: Arc<C>,
+    ) -> DecoratedPostRepositoryBuilder<CachedPostRepository<P, C>> {
         DecoratedPostRepositoryBuilder {
-            post_repo: cached_repo,
+            post_repo: CachedPostRepository::new(self.post_repo, cache_service),
         }
-    }   
-    pub fn observable(self, registry: &Registry) -> Result<DecoratedPostRepositoryBuilder<ObservablePostRepository<P>>, errors::ObservabilityError>{
-        let observable_repo = ObservablePostRepository::new(self.post_repo, registry)?;
-
-        Ok(DecoratedPostRepositoryBuilder {
-            post_repo: observable_repo,
-        })
     }
-    
-    pub fn build(self) -> P{
+    pub fn observable(self) -> DecoratedPostRepositoryBuilder<ObservablePostRepository<P>> {
+        DecoratedPostRepositoryBuilder {
+            post_repo: ObservablePostRepository::new(self.post_repo),
+        }
+    }
+
+    pub fn build(self) -> P {
         self.post_repo
     }
 }
@@ -50,46 +51,35 @@ impl<P: PostRepository + 'static> DecoratedPostRepositoryBuilder<P> {
 #[derive(Clone)]
 pub struct ObservablePostRepository<P: PostRepository> {
     inner: P,
-    request_count: IntCounterVec,
-    request_latency: HistogramVec,
+    request_count: Counter<u64>,
+    request_latency: Histogram<f64>,
 }
 
 impl<P: PostRepository> ObservablePostRepository<P> {
-    pub fn new(inner: P, registry: &Registry) -> Result<Self, errors::ObservabilityError> {
-        const EXPONENTIAL_SECONDS: &[f64] = &[
+    pub fn new(inner: P) -> Self {
+        let boundaries = vec![
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
-        let request_count = IntCounterVec::new(
-            Opts::new(
-                "post_repo_requests_total",
-                "Total requests to PostRepository",
-            ),
-            &["method", "operation", "status"],
-        )
-        .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
 
-        let request_latency = HistogramVec::new(
-            prometheus::HistogramOpts::new(
-                "post_repo_request_duration_seconds",
-                "Latency of PostRepository methods",
-            )
-            .buckets(EXPONENTIAL_SECONDS.to_vec()),
-            &["method", "operation"],
-        )
-        .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let meter_provider = global::meter("media-service");
+        let request_count = meter_provider
+            .u64_counter("posts_repo_requests_total")
+            .with_description("Total requests to PostsRepository")
+            .with_unit("PostsRepository")
+            .build();
 
-        registry
-            .register(Box::new(request_count.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-        registry
-            .register(Box::new(request_latency.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let request_latency = meter_provider
+            .f64_histogram("posts_repo_request_duration_seconds")
+            .with_description("Latency of PostsRepository methods")
+            .with_boundaries(boundaries)
+            .with_unit("PostsRepository")
+            .build();
 
-        Ok(Self {
+        Self {
             inner,
             request_count,
             request_latency,
-        })
+        }
     }
 
     async fn track_method<T, F, E: errors::ProblemResponse + ToString>(
@@ -98,6 +88,7 @@ impl<P: PostRepository> ObservablePostRepository<P> {
         query_summary: &str,
         operation_name: &str,
         target: &str,
+        post_id: Option<&str>,
         operation: F,
     ) -> Result<T, E>
     where
@@ -112,31 +103,28 @@ impl<P: PostRepository> ObservablePostRepository<P> {
             "db.operation" = operation_name,
             "db.target" = target,
             "method.name" = method_name,
+            "post_id" = post_id,
             "error.message" = field::Empty,
             "error.type" = field::Empty,
         );
 
         let result = operation.await;
-
         let status = if result.is_ok() { "success" } else { "error" };
-        self.request_count
-            .with_label_values(&[method_name, operation_name, status])
-            .inc();
+        let mut attributes = vec![
+            KeyValue::new("method", method_name.to_string()),
+            KeyValue::new("operation", operation_name.to_string()),
+        ];
 
         self.request_latency
-            .with_label_values(&[method_name, operation_name])
-            .observe(start_time.elapsed().as_secs_f64());
+            .record(start_time.elapsed().as_secs_f64(), &attributes);
 
-        if let Err(ref err) = result {
-            if err.status_code() == axum::http::StatusCode::INTERNAL_SERVER_ERROR {
-                span.record("error.type", "database_error")
-                    .set_status(opentelemetry::trace::Status::error(err.to_string()));
-                return result;
-            }
-        }
+        attributes.push(KeyValue::new("status", status));
+        self.request_count.add(1, &attributes);
 
+        let result = trace_server_error(result, &span, "database_error")?;
         span.set_status(opentelemetry::trace::Status::Ok);
-        result
+
+        Ok(result)
     }
 }
 
@@ -148,6 +136,7 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
             "mongo.insert_one posts",
             "insert_one",
             "posts",
+            None,
             self.inner.create(post),
         )
         .await
@@ -159,6 +148,7 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
             "mongo.find_one_and_update posts",
             "find_one_and_update filter",
             "posts",
+            Some(&post.id.to_string()),
             self.inner.update(post),
         )
         .await
@@ -170,6 +160,7 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
             "mongo.find_one posts",
             "find_one",
             "posts",
+            Some(&post_id.to_string()),
             self.inner.get(post_id),
         )
         .await
@@ -178,7 +169,7 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
     async fn get_paginated_posts(
         &self,
         user_id: Option<Ulid>,
-        per_page: Option<u16>,
+        per_page: Option<u32>,
         last_post_id: Option<Ulid>,
     ) -> Result<PaginatedResponse<Post>, AppError> {
         self.track_method(
@@ -186,6 +177,7 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
             "mongo.find posts",
             "find, sort, count_documents",
             "posts",
+            None,
             self.inner
                 .get_paginated_posts(user_id, per_page, last_post_id),
         )
@@ -198,6 +190,13 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
             "mongo.find posts",
             "find",
             "posts",
+            Some(
+                &post_ids
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
             self.inner.get_batch_posts(post_ids),
         )
         .await
@@ -209,22 +208,20 @@ impl<P: PostRepository + 'static> PostRepository for ObservablePostRepository<P>
             "mongo.find_one_and_delete posts",
             "find_one_and_delete",
             "posts",
+            Some(&post_id.to_string()),
             self.inner.delete(post_id),
         )
         .await
     }
 
-    async fn delete_all_from_user(
-        &self,
-        user_id: &Ulid,
-        session: &mut ClientSession,
-    ) -> Result<DeletedPostsIds, AppError> {
+    async fn delete_all_from_user(&self, user_id: &Ulid) -> Result<DeletedPostsIds, AppError> {
         self.track_method(
             "delete_all_from_user",
             "mongo.find.projection.delete_many posts",
             "find,projection,delete_many",
             "posts",
-            self.inner.delete_all_from_user(user_id, session),
+            None,
+            self.inner.delete_all_from_user(user_id),
         )
         .await
     }
@@ -252,6 +249,10 @@ impl<P: PostRepository, C: CacheService> PostRepository for CachedPostRepository
             .hdelete_all("users-posts", &format!("*{}*", post.user_id))
             .await?;
 
+        self.cache_service
+            .hdelete_all("users-posts", "none:none:*")
+            .await?;
+
         Ok(post)
     }
 
@@ -260,6 +261,10 @@ impl<P: PostRepository, C: CacheService> PostRepository for CachedPostRepository
 
         self.cache_service
             .hdelete_all("users-posts", &format!("*{}*", updated_post.user_id))
+            .await?;
+
+        self.cache_service
+            .hdelete_all("users-posts", "none:none:*")
             .await?;
 
         self.cache_service
@@ -276,7 +281,6 @@ impl<P: PostRepository, C: CacheService> PostRepository for CachedPostRepository
         }
 
         let post = self.inner.get(post_id).await?;
-
         self.cache_service.hset("posts", cache_key, &post).await?;
 
         Ok(post)
@@ -285,13 +289,21 @@ impl<P: PostRepository, C: CacheService> PostRepository for CachedPostRepository
     async fn get_paginated_posts(
         &self,
         user_id: Option<Ulid>,
-        per_page: Option<u16>,
+        per_page: Option<u32>,
         last_post_id: Option<Ulid>,
     ) -> Result<PaginatedResponse<Post>, AppError> {
+        let user_id_str = user_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "none".to_string());
+
+        let last_post_id_str = last_post_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "none".to_string());
+
         let cache_key = format!(
             "{}:{}:{}",
-            &user_id.unwrap_or_default(),
-            &last_post_id.unwrap_or_default(),
+            &user_id_str,
+            &last_post_id_str,
             &per_page.unwrap_or(10)
         );
 
@@ -342,43 +354,42 @@ impl<P: PostRepository, C: CacheService> PostRepository for CachedPostRepository
 
     async fn delete(&self, post_id: &Ulid) -> Result<(), AppError> {
         self.inner.delete(post_id).await?;
-        
-        self
-            .cache_service
+
+        self.cache_service
             .hdelete_all("batch-posts", &format!("*{}*", post_id))
             .await?;
 
-        self
-            .cache_service
+        self.cache_service
+            .hdelete_all("users-posts", "none:none:*")
+            .await?;
+
+        self.cache_service
             .hdelete("posts", &post_id.to_string())
             .await?;
-        
+
         Ok(())
     }
 
-    async fn delete_all_from_user(
-        &self,
-        user_id: &Ulid,
-        session: &mut ClientSession,
-    ) -> Result<DeletedPostsIds, AppError> {
-        let deleted_post_ids = self.inner.delete_all_from_user(user_id, session).await?;
+    async fn delete_all_from_user(&self, user_id: &Ulid) -> Result<DeletedPostsIds, AppError> {
+        let deleted_post_ids = self.inner.delete_all_from_user(user_id).await?;
         for post_id in &deleted_post_ids {
-            self
-                .cache_service
+            self.cache_service
                 .hdelete_all("batch-posts", &format!("*{}*", post_id))
-                .await?;           
-            
-            self
-                .cache_service
+                .await?;
+
+            self.cache_service
                 .hdelete_all("users-posts", &format!("*{}*", user_id))
                 .await?;
 
-            self
-                .cache_service
+            self.cache_service
+                .hdelete_all("users-posts", "none:none:*")
+                .await?;
+
+            self.cache_service
                 .hdelete("posts", &post_id.to_string())
                 .await?;
         }
-        
+
         Ok(deleted_post_ids)
     }
 }

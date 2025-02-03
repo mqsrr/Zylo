@@ -12,8 +12,6 @@ use ulid::Ulid;
 
 pub mod post_server {
     tonic::include_proto!("post_server");
-    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-        tonic::include_file_descriptor_set!("post_server_descriptor");
 }
 
 #[derive(Debug)]
@@ -70,7 +68,7 @@ where
             .parse()
             .map_err(|_| Status::invalid_argument("Invalid user id"))?;
 
-        let per_page = inner.per_page;
+        let per_page = inner.per_page as u32;
         let last_post_id = inner
             .last_post_id
             .map(|id| Ulid::from_str(&id.to_string()))
@@ -79,7 +77,7 @@ where
 
         let posts = self
             .post_repo
-            .get_paginated_posts(Some(user_id), Some(per_page as u16), last_post_id)
+            .get_paginated_posts(Some(user_id), Some(per_page), last_post_id)
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
 

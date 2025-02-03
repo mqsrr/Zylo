@@ -2,13 +2,28 @@ name: Build Media Service
 
 on:
   push:
+    branches:
+      - main
     paths:
-      - 'media-service/**'
-      - '.github/media-service.yml'
+      - 'src/media-service/**'
+      - '.github/workflows/media-service.yml'
+    tags:
+      - 'media-service/v*.*.*'
   pull_request:
+    branches:
+      - main
     paths:
-      - 'media-service/**'
-      - '.github/media-service.yml'
+      - 'src/media-service/**'
+      - '.github/workflows/media-service.yml'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
@@ -20,13 +35,96 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: actions/setup-rust@v2
-        with:
-          rust-version: stable
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
 
-      - name: Install dependencies
-        run: cargo fetch
+      - run: rustup toolchain install stable --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
       - name: Build the project
         run: cargo build --release
+
+  security-scan:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/media-service
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  docker-build-and-push:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+              ${{ secrets.MEDIA_INTERACTION_IMAGE }}
+          tags: |
+            type=match,pattern=media-service/v(.*)
+            type=match,pattern=media-service/v(\d.\d)
+            type=match,pattern=media-service/v(\d)
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+        env:
+          DOCKER_METADATA_SHORT_SHA_LENGTH: 8
+          
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          file: src/media-service/Dockerfile
+          context: src/media-service
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ secrets.MEDIA_DOCKER_IMAGE }}:sha-${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'

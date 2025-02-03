@@ -18,17 +18,17 @@ pub trait Validate {
 
 #[derive(Debug, Deserialize)]
 pub struct PaginationParams {
-    #[serde(rename = "lastCreatedAt")]
-    pub last_post_id: Option<Ulid>,
-    #[serde(rename = "pageSize")]
-    pub per_page: Option<u16>,
+    #[serde(rename = "next")]
+    pub next: Option<Ulid>,
+    #[serde(rename = "perPage")]
+    pub per_page: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PaginatedResponse<T> {
     pub data: Vec<T>,
     #[serde(rename = "perPage")]
-    pub per_page: u16,
+    pub per_page: u32,
     #[serde(rename = "hasNextPage")]
     pub has_next_page: bool,
     #[serde(rename = "next")]
@@ -36,7 +36,7 @@ pub struct PaginatedResponse<T> {
 }
 
 impl<T> PaginatedResponse<T> {
-    pub fn new(data: Vec<T>, per_page: u16, has_next_page: bool, next_cursor: String) -> Self {
+    pub fn new(data: Vec<T>, per_page: u32, has_next_page: bool, next_cursor: String) -> Self {
         Self {
             data,
             per_page,
@@ -103,6 +103,19 @@ impl Validate for CreatePostRequest {
         
         if self.text.trim().is_empty() {
             return Err(errors::ValidationError::Failed("Post context cannot be empty".to_string()));
+        }
+        
+        Ok(())
+    }
+}
+
+impl Validate for PaginationParams {
+    fn validate(&self) -> Result<(), errors::ValidationError> {
+        if let Some(per_page) = self.per_page {
+            if per_page < 1 {
+                return Err(errors::ValidationError::Failed("perPage cannot be less than 1".to_string()));
+            }
+            
         }
         
         Ok(())

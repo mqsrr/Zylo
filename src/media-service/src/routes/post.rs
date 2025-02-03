@@ -1,10 +1,9 @@
-use crate::auth::authorization_middleware;
 use crate::errors;
 use crate::models::app_state::AppState;
 use crate::models::event_messages::{PostCreatedMessage, PostDeletedMessage, PostUpdatedMessage};
 use crate::models::post::PostResponse;
 use crate::repositories::post_repo::PostRepository;
-use crate::repositories::user_repo::UserRepository;
+use crate::repositories::user_repo::UsersRepository;
 use crate::services::amq::AmqClient;
 use crate::services::cache_service::CacheService;
 use crate::utils::constants::POST_EXCHANGE_NAME;
@@ -12,35 +11,30 @@ use crate::utils::request::{
     ConstructableRequest, CreatePostRequest, PaginatedResponse, PaginationParams,
     UpdatePostRequest, Validate,
 };
-use async_trait::async_trait;
 use axum::extract::{FromRequest, Path, Query, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
-use axum::{http::StatusCode, middleware, Json, Router};
+use axum::{http::StatusCode, Json, Router};
 use ulid::Ulid;
 
 pub fn create_router<P,U, C, A>(app_state: AppState<P, U, C, A>) -> Router
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static
 {
     Router::new()
         .route("/api/posts", get(get_recent_posts))
-        .route("/api/posts/:postId", get(get_post))
+        .route("/api/posts/{postId}", get(get_post))
         .route(
-            "/api/users/:userId/posts",
+            "/api/users/{userId}/posts",
             post(create_post).get(get_users_posts),
         )
         .route(
-            "/api/users/:userId/posts/:postId",
+            "/api/users/{userId}/posts/{postId}",
             put(update_post).delete(delete_post),
         )
-        .layer(middleware::from_fn_with_state(
-            app_state.config.auth.clone(),
-            authorization_middleware,
-        ))
         .with_state(app_state)
 }
 
@@ -50,7 +44,7 @@ async fn create_post<P, U, C, A>(
 ) -> Result<(StatusCode, Json<PostResponse>), errors::AppError>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -60,7 +54,6 @@ where
     }
     
     let post = state.post_repo.create(request).await?;
-
     state
         .amq_client
         .publish_event(
@@ -79,13 +72,14 @@ pub async fn get_recent_posts<P, U,C, A>(
 ) -> Result<(StatusCode, Json<PaginatedResponse<PostResponse>>), errors::AppError>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
+    params.validate()?;
     let paginated_response = state
         .post_repo
-        .get_paginated_posts(None, params.per_page, params.last_post_id)
+        .get_paginated_posts(None, params.per_page.map(|v| v as u32), params.next)
         .await?;
 
     Ok((
@@ -103,7 +97,7 @@ async fn get_post<P, U, C, A>(
 ) -> Result<(StatusCode, Json<PostResponse>), errors::AppError>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -118,16 +112,16 @@ async fn get_users_posts<P,U, C, A>(
 ) -> Result<(StatusCode, Json<PaginatedResponse<PostResponse>>), errors::AppError>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
+    params.validate()?;
     let paginated_response = state
         .post_repo
-        .get_paginated_posts(Some(user_id), params.per_page, params.last_post_id)
+        .get_paginated_posts(Some(user_id), params.per_page.map(|v| v as u32), params.next)
         .await?;
     
-
     Ok((
         StatusCode::OK,
         Json(PaginatedResponse::from_page(
@@ -143,7 +137,7 @@ async fn update_post<P, U, C, A>(
 ) -> Result<(StatusCode, Json<PostResponse>), errors::AppError>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -166,7 +160,7 @@ async fn delete_post<P,U, C, A>(
 ) -> Result<StatusCode, errors::AppError>
 where
     P: PostRepository + 'static,
-    U: UserRepository + 'static,
+    U: UsersRepository + 'static,
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
@@ -191,7 +185,6 @@ where
 
 struct MultipartRequest<T: ConstructableRequest + Validate>(T);
 
-#[async_trait]
 impl<S, T> FromRequest<S> for MultipartRequest<T>
 where
     S: Send + Sync,

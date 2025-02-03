@@ -23,7 +23,7 @@ impl ProblemResponse for RedisError {
         }
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
         match self {
             RedisError::Operation { .. } => "Internal Server Error",
             RedisError::Serialization(_) => "Internal Server Error",

@@ -8,14 +8,13 @@ on:
       - 'src/user-interaction/**'
       - '.github/workflows/user-interaction.yml'
     tags:
-      - "v*.*.*"
+      - "user-interaction/v*.*.*"
   pull_request:
     branches:
       - main
     paths:
       - 'src/user-interaction/**'
       - '.github/workflows/user-interaction.yml'
-
 
 permissions:
   contents: read
@@ -85,11 +84,13 @@ jobs:
           images: |
             ${{ secrets.INTERACTION_DOCKER_IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=match,pattern=user-interaction/v(.*)
+            type=match,pattern=user-interaction/v(\d.\d)
+            type=match,pattern=user-interaction/v(\d)
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+        env:
+          DOCKER_METADATA_SHORT_SHA_LENGTH: 8
 
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
@@ -118,7 +119,7 @@ jobs:
       - name: Run vulnerability scanner
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: '${{ fromJSON(steps.meta.outputs.json).tags[1] }}'
+          image-ref: '${{ secrets.INTERACTION_DOCKER_IMAGE }}:sha-${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
 

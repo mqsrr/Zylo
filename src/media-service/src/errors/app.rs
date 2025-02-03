@@ -17,8 +17,8 @@ pub trait ProblemResponse {
     fn title(&self) -> &str;
     fn detail(&self) -> String;
 
-    fn public_detail(&self) -> &str {
-        "An unexpected server error occurred. Please try again later."
+    fn public_detail(&self) -> String {
+        String::from("An unexpected server error occurred. Please try again later.")
     }
 
     fn to_response(&self) -> Response {
@@ -48,8 +48,6 @@ pub enum AppError {
     #[error(transparent)]
     ValidationError(#[from] errors::ValidationError),
     #[error(transparent)]
-    ObservabilityError(#[from] errors::ObservabilityError),
-    #[error(transparent)]
     S3Error(#[from] errors::S3Error),
     
     #[error("Error making the request: {0}")]
@@ -61,9 +59,7 @@ pub enum AppError {
     #[error("{0}")]
     BadRequest(String),       
     #[error("{0}")]
-    NotFound(String),    
-    #[error("{0}")]
-    Internal(String),
+    NotFound(String),
 }
 
 impl ProblemResponse for AppError {
@@ -74,7 +70,6 @@ impl ProblemResponse for AppError {
             AppError::AmqError(err) => err.status_code(),
             AppError::ValidationError(err) => err.status_code(),
             AppError::AuthError(err) => err.status_code(),
-            AppError::ObservabilityError(err) => err.status_code(),
             AppError::S3Error(err) => err.status_code(),
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
@@ -90,7 +85,6 @@ impl ProblemResponse for AppError {
             AppError::S3Error(err) => err.title(),
             AppError::MongoError(err) => err.title(),
             AppError::AmqError(err) => err.title(),
-            AppError::ObservabilityError(err) => err.title(),
             
             AppError::NotFound(_) => "Resource Not Found",
             AppError::BadRequest(_) => "Bad Request",
@@ -102,20 +96,17 @@ impl ProblemResponse for AppError {
         self.to_string()
     }
 
-    fn public_detail(&self) -> &str {
+    fn public_detail(&self) -> String {
         match self {
-            AppError::ValidationError(err) => &err.public_detail(),
+            AppError::ValidationError(err) => err.public_detail(),
             AppError::RedisError(err) => err.public_detail(),
             AppError::MongoError(err) => err.public_detail(),
             AppError::AmqError(err) => err.public_detail(),
             AppError::S3Error(err) => err.public_detail(),
-            AppError::BadRequest(err) => err,
-            AppError::NotFound(err) => err,
-            AppError::ObservabilityError(_) => {
-                "An unexpected server error occurred. Please try again later."
-            }
+            AppError::BadRequest(err) => err.clone(),
+            AppError::NotFound(err) => err.clone(),
 
-            _ => "An unexpected server error occurred. Please try again later."
+            _ => self.public_detail()
         }
     }
 }

@@ -2,13 +2,25 @@
 
 on:
   push:
+    branches:
+      - main
     paths:
-      - 'user-management/**'
-      - '.github/user-management.yml'
+      - 'src/user-management/**'
+      - '.github/workflows/user-management.yml'
+    tags:
+      - 'user-management/v*.*.*'
   pull_request:
+    branches:
+      - main
     paths:
-      - 'user-management/**'
-      - '.github/user-management.yml'
+      - 'src/user-management/**'
+      - '.github/workflows/user-management.yml'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  
 jobs:
   build:
     runs-on: ubuntu-latest

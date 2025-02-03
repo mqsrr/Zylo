@@ -20,7 +20,7 @@ impl ProblemResponse for S3Error {
         StatusCode::INTERNAL_SERVER_ERROR
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
         "Internal Server Error"
     }
 

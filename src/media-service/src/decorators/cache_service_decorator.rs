@@ -1,55 +1,47 @@
 use async_trait::async_trait;
-use prometheus::{HistogramVec, IntCounterVec, Opts, Registry};
+use opentelemetry::{global, KeyValue};
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::trace::SpanKind;
 use redis::aio::MultiplexedConnection;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tracing::{field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use crate::decorators::trace_server_error;
 use crate::errors;
-use crate::errors::{ProblemResponse};
 use crate::services::cache_service::CacheService;
 
 pub struct ObservableCacheService<C: CacheService + 'static> {
     inner: C,
-    request_count: IntCounterVec,
-    request_latency: HistogramVec,
+    request_count: Counter<u64>,
+    request_latency: Histogram<f64>,
 }
 
 impl<T: CacheService + 'static> ObservableCacheService<T> {
-    pub fn new(inner: T, registry: &Registry) -> Result<Self, errors::ObservabilityError> {
-        const LATENCY_BUCKETS: &[f64] = &[
+    pub fn new(inner: T) -> Self {
+        let boundaries = vec![
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
 
-        let request_count = IntCounterVec::new(
-            Opts::new("cache_requests_total", "Total cache requests processed"),
-            &["method", "status"],
-        )
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let meter_provider = global::meter("media-service");
+        let request_count = meter_provider
+            .u64_counter("cache_service_requests_total")
+            .with_description("Total requests to Cache Service")
+            .with_unit("CacheService")
+            .build();
 
-        let request_latency = HistogramVec::new(
-            prometheus::HistogramOpts::new(
-                "cache_request_duration_seconds",
-                "Latency of cache methods",
-            )
-                .buckets(LATENCY_BUCKETS.to_vec()),
-            &["method"],
-        )
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
+        let request_latency = meter_provider
+            .f64_histogram("cache_service_request_duration_seconds")
+            .with_description("Latency of Cache Service methods")
+            .with_boundaries(boundaries)
+            .with_unit("CacheService")
+            .build();
 
-        registry
-            .register(Box::new(request_count.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-
-        registry
-            .register(Box::new(request_latency.clone()))
-            .map_err(|e| errors::ObservabilityError::MetricRegistration(e.to_string()))?;
-
-        Ok(Self {
+        Self {
             inner,
             request_count,
             request_latency,
-        })
+        }
     }
 
     async fn track_method<F, R>(
@@ -57,7 +49,7 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
         method_name: &str,
         query_summary: &str,
         operation_name: &str,
-        target: &str,
+        namespace: &str,
         operation: F,
     ) -> Result<R, errors::RedisError>
     where
@@ -67,34 +59,34 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
         let span = info_span!(
             "",
             "otel.name" = query_summary,
-            "otel.kind" = "client",
-            "db.system" = "cache",
+            "otel.kind" = ?SpanKind::Client,
+            "db.system.name" = "redis",
             "db.operation.name" = operation_name,
-            "db.collection.name" = target,
-            "error.type" = field::Empty
+            "db.namespace" = namespace,
+            "method.name" = method_name,
+            "network.transport" = "unix",
+            "error.message" = field::Empty,
+            "error.type" = field::Empty,
         );
 
         let result = operation.await;
 
-        let status_label = if result.is_ok() { "success" } else { "error" };
-        self.request_count
-            .with_label_values(&[method_name, status_label])
-            .inc();
+        let status = if result.is_ok() { "success" } else { "error" };
+        let mut attributes = vec![
+            KeyValue::new("method", method_name.to_string()),
+            KeyValue::new("operation", operation_name.to_string()),
+        ];
 
         self.request_latency
-            .with_label_values(&[method_name])
-            .observe(start_time.elapsed().as_secs_f64());
+            .record(start_time.elapsed().as_secs_f64(), &attributes);
 
-        if let Err(ref err) = result {
-            if err.status_code() == axum::http::StatusCode::INTERNAL_SERVER_ERROR {
-                span.record("error.type", "cache_error")
-                    .set_status(opentelemetry::trace::Status::error(err.to_string()));
-                return result;
-            }
-        }
+        attributes.push(KeyValue::new("status", status));
+        self.request_count.add(1, &attributes);
 
+        let result = trace_server_error(result, &span, "database_error")?;
         span.set_status(opentelemetry::trace::Status::Ok);
-        result
+        
+        Ok(result)
     }
 }
 

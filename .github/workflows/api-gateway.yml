@@ -3,13 +3,25 @@ name: "Build Api Gateway"
 
 on:
   push:
+    branches:
+      - main
     paths:
-      - 'api-gateway/**'
-      - '.github/api-gateway.yml'
+      - 'src/api-gateway/**'
+      - '.github/workflows/api-gateway.yml'
+    tags:
+      - 'api-gateway/v*.*.*'
   pull_request:
+    branches:
+      - main
     paths:
-      - 'api-gateway/**'
-      - '.github/api-gateway.yml'
+      - 'src/api-gateway/**'
+      - '.github/workflows/api-gateway.yml'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  
 jobs:
   build:
     runs-on: ubuntu-latest

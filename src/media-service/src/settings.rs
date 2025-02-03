@@ -127,7 +127,10 @@ impl AppConfig {
                     return AppConfig::from_key_vault(&KeyVault::new().await.unwrap()).await
                 }
 
-                AppConfig::from_json("./config/development.json").await
+                let mut config = AppConfig::from_json("./config/development.json").await;
+                config.s3_config.bucket_name = std::env::var("S3_BUCKET").unwrap();
+                
+                config
             }
             Err(_) => {
                 AppConfig::from_json("./config/development.json").await
