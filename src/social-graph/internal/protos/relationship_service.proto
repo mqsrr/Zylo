@@ -1,0 +1,49 @@
+﻿syntax = "proto3";
+
+option go_package = "github.com/mqsrr/zylo/social-graph/proto;proto";
+
+import "google/protobuf/timestamp.proto";
+
+service RelationshipService {
+  rpc GetUserRelationships(RelationshipRequest) returns (RelationshipResponse);
+  rpc GetBatchRelationships(BatchRelationshipRequest) returns (BatchRelationshipResponse);
+}
+
+message RelationshipResponse {
+  string user_id = 1;
+  Relationships relationships = 2;
+}
+
+message Relationships {
+  RelationshipData friends = 1;
+  FriendRequests friend_requests = 2;
+  RelationshipData blocks = 3;
+  FollowRequest follows = 4;
+}
+
+message RelationshipData {
+  repeated string ids = 1;
+  map<string, google.protobuf.Timestamp> created_at = 2;
+}
+
+message FriendRequests {
+  RelationshipData sent = 1;
+  RelationshipData received = 2;
+}
+
+message FollowRequest {
+  RelationshipData followers = 1;
+  RelationshipData following = 2;
+}
+
+message RelationshipRequest {
+  string user_id = 1;
+}
+
+message BatchRelationshipRequest {
+  repeated string user_ids = 1;
+}
+
+message BatchRelationshipResponse {
+  map<string, RelationshipResponse> users = 1;
+}

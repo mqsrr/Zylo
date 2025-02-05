@@ -1,57 +1,53 @@
-name: Build and Push User Interaction
+name: Build and Push Social Graph
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'src/user-interaction/**'
-      - '.github/workflows/user-interaction.yml'
+      - 'src/social-graph/**'
+      - '.github/workflows/social-graph.yml'
     tags:
-      - "user-interaction/v*.*.*"
+      - 'social-graph/v*.*.*'
   pull_request:
     branches:
       - main
     paths:
-      - 'src/user-interaction/**'
-      - '.github/workflows/user-interaction.yml'
+      - 'src/social-graph/**'
+      - '.github/workflows/social-graph.yml'
 
 permissions:
   contents: read
   security-events: write
   actions: read
 
-env:
-  CARGO_INCREMENTAL: 0
-  CARGO_TERM_COLOR: always
-
 jobs:
   build:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/user-interaction
+        working-directory: src/social-graph
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
 
-      - run: rustup toolchain install stable --profile minimal
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: go mod tidy
 
       - name: Build the project
-        run: cargo build --release
+        run: go build ./cmd/social-graph
 
   security-scan:
     needs: build
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/user-interaction
+        working-directory: src/social-graph
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -67,6 +63,7 @@ jobs:
 
       - name: Upload scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: 'trivy-results.sarif'
 
@@ -82,14 +79,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ secrets.INTERACTION_DOCKER_IMAGE }}
+              ${{ secrets.SOCIAL_DOCKER_IMAGE }}
           tags: |
-            type=match,pattern=user-interaction/v(.*),group=1
-            type=match,pattern=user-interaction/v(\d.\d),group=1
-            type=match,pattern=user-interaction/v(\d),group=1
+            type=match,pattern=social-graph/v(.*),group=1
+            type=match,pattern=social-graph/v(\d.\d),group=1
+            type=match,pattern=social-graph/v(\d),group=1
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
-            
+
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -109,8 +106,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          file: src/user-interaction/Dockerfile
-          context: src/user-interaction
+          file: src/social-graph/Dockerfile
+          context: src/social-graph
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

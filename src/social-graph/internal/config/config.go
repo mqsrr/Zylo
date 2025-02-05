@@ -2,9 +2,10 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
+	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/rs/zerolog/log"
 	"os"
 	"strconv"
@@ -15,48 +16,47 @@ type SecretClient interface {
 	GetSecret(ctx context.Context, name string, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error)
 }
 
-type PublicConfig struct {
-	ListeningAddress string
-	Environment      string
+type ServerConfig struct {
+	Port        string `json:"port"`
+	Environment string `json:"environment"`
 }
 
 type Config struct {
-	*PublicConfig
-	DB    *DbConfig
-	Redis *RedisConfig
-	Jwt   *JwtConfig
-	Amqp  *RabbitmqConfig
-	Grpc  *GrpcClientConfig
+	*ServerConfig `json:"serverConfig"`
+	DB            *DbConfig         `json:"db"`
+	Redis         *RedisConfig      `json:"redis"`
+	Jwt           *JwtConfig        `json:"jwt"`
+	Amqp          *RabbitmqConfig   `json:"amqp"`
+	GrpcServer    *GrpcServerConfig `json:"grpcServer"`
 }
 
 type RabbitmqConfig struct {
-	AmqpURI  string
-	ConnTag  string
-	ConnName string
-}
-
-type GrpcClientConfig struct {
-	ServerAddr string
+	AmqpURI  string `json:"amqpURI"`
+	ConnTag  string `json:"connTag"`
+	ConnName string `json:"connName"`
 }
 
 type JwtConfig struct {
-	Secret   string
-	Issuer   string
-	Audience string
+	Secret   string `json:"secret"`
+	Issuer   string `json:"issuer"`
+	Audience string `json:"audience"`
 }
 
 type RedisConfig struct {
-	ConnectionString string
-	Expire           time.Duration
+	ConnectionString string        `json:"connectionString"`
+	Expire           time.Duration `json:"expire"`
 }
 
 type DbConfig struct {
-	Uri      string
-	Username string
-	Password string
+	Uri      string `json:"uri"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+type GrpcServerConfig struct {
+	Port string `json:"port"`
 }
 
-var DefaultConfig *PublicConfig
+var DefaultConfig *ServerConfig
 
 func CreateKeyVaultClient() (*azsecrets.Client, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
@@ -91,13 +91,50 @@ func getSecretValue(key string, client SecretClient) string {
 
 func getEnvValue(key string, fallback string) string {
 	value := os.Getenv(key)
-	if value == "" && fallback == "" {
+	if value == "" && fallback != "" {
+		return fallback
+	}
+
+	if value == "" {
 		log.Panic().Msg(fmt.Sprintf("$%q must be set", key))
 	}
 
 	return value
 }
-func Load(client SecretClient) *Config {
+
+func loadConfigFromFile(filePath string) (*Config, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Error().
+				Timestamp().
+				Caller().
+				Str("filePath", filePath).
+				Err(err).
+				Msg("Failed to close file")
+		}
+	}(f)
+
+	var config Config
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(&config); err != nil {
+		return nil, err
+	}
+
+	DefaultConfig = config.ServerConfig
+	return &config, nil
+}
+
+func loadConfigFromSecretStore() (*Config, error) {
+	client, err := CreateKeyVaultClient()
+	if err != nil {
+		return nil, err
+	}
+
 	amqpConfig := &RabbitmqConfig{
 		AmqpURI:  getSecretValue("Zylo-RabbitMq--ConnectionString", client),
 		ConnName: "social-graph",
@@ -111,8 +148,7 @@ func Load(client SecretClient) *Config {
 
 	expireInMin, err := strconv.Atoi(getSecretValue("Zylo-Redis--Expire", client))
 	if err != nil {
-		log.Panic().Err(err).Msg("could not load the global redis expiration time")
-		return nil
+		return nil, err
 	}
 	redisConfig := &RedisConfig{
 		ConnectionString: getSecretValue("Social-Redis--ConnectionString", client),
@@ -125,22 +161,32 @@ func Load(client SecretClient) *Config {
 		Password: getSecretValue("Social-Neo4j--Password", client),
 	}
 
-	grpcConfig := &GrpcClientConfig{
-		ServerAddr: getSecretValue("UserManagement-Grpc--ServerAddress", client),
+	DefaultConfig = &ServerConfig{
+		Port:        getEnvValue("PORT", ":8080"),
+		Environment: getEnvValue("ENVIRONMENT", "Development"),
 	}
 
-	DefaultConfig = &PublicConfig{
-		ListeningAddress: getEnvValue("LISTENING_ADDRESS", ":8091"),
-		Environment:      getEnvValue("ENVIRONMENT", "Production"),
+	grpcServerConfig := &GrpcServerConfig{
+		Port: getSecretValue("Social-GrpcServer--Port", client),
 	}
 
 	config := &Config{
-		PublicConfig: DefaultConfig,
+		ServerConfig: DefaultConfig,
 		DB:           dbConfig,
 		Redis:        redisConfig,
 		Jwt:          jwtConfig,
 		Amqp:         amqpConfig,
-		Grpc:         grpcConfig,
+		GrpcServer:   grpcServerConfig,
 	}
-	return config
+
+	DefaultConfig = config.ServerConfig
+	return config, nil
+}
+
+func Load() (*Config, error) {
+	if env := getEnvValue("ENVIRONMENT", "Development"); env != "Production" {
+		return loadConfigFromFile("config/dev.json")
+	}
+
+	return loadConfigFromSecretStore()
 }

@@ -85,7 +85,7 @@ func (c *AmqConsumer) PublishMessage(exchangeName, routingKey string, v interfac
 		return err
 	}
 
-	err = c.channel.Publish(
+	if err = c.channel.Publish(
 		exchangeName,
 		routingKey,
 		false,
@@ -94,13 +94,10 @@ func (c *AmqConsumer) PublishMessage(exchangeName, routingKey string, v interfac
 			ContentType: "application/json",
 			Body:        body,
 		},
-	)
-
-	if err != nil {
-		return fmt.Errorf("error publishing message: %s", err)
+	); err != nil {
+		return fmt.Errorf("message could not be published %s", err)
 	}
 
-	log.Debug().Msgf("Message published to routing key: %s", routingKey)
 	return nil
 }
 
@@ -145,7 +142,6 @@ func declareQueues(channel *amqp.Channel) error {
 
 	queueBindings := map[string]string{
 		"user-created-social-graph-queue": "user.created",
-		"user-updated-social-graph-queue": "user.updated",
 		"user-deleted-social-graph-queue": "user.deleted",
 	}
 

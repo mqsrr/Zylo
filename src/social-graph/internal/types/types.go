@@ -2,94 +2,75 @@ package types
 
 import (
 	"github.com/oklog/ulid/v2"
-	"time"
 )
 
-type User struct {
-	ID           ulid.ULID             `json:"id"`
-	Username     string                `json:"username"`
-	ProfileImage *FileMetadataResponse `json:"profileImage"`
-	Name         string                `json:"name"`
-	Bio          string                `json:"bio"`
-	Location     string                `json:"location"`
-	CreatedAt    string                `json:"createdAt"`
+type Relationship struct {
+	IDs       []ulid.ULID          `json:"ids"`
+	CreatedAt map[ulid.ULID]string `json:"createdAt"`
 }
+
+type FollowRequests struct {
+	Followers *Relationship `json:"followers"`
+	Following *Relationship `json:"following"`
+}
+
+type FriendRequests struct {
+	Sent     *Relationship `json:"sent"`
+	Received *Relationship `json:"received"`
+}
+
 type UserWithRelationships struct {
-	User                   *User
-	Followers              []*User
-	FollowedPeople         []*User
-	BlockedPeople          []*User
-	Friends                []*User
-	SentFriendRequests     []*User
-	ReceivedFriendRequests []*User
-}
-
-type FileMetadata struct {
-	AccessUrl   *PresignedUrl `json:"accessUrl"`
-	FileName    string        `json:"fileName"`
-	ContentType string        `json:"contentType"`
-}
-
-type FileMetadataResponse struct {
-	Url         string `json:"url"`
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-}
-
-type PresignedUrl struct {
-	Url       string `json:"url"`
-	ExpiresIn time.Time
+	UserID         ulid.ULID       `json:"userId"`
+	Friends        *Relationship   `json:"friends"`
+	Follows        *FollowRequests `json:"follows"`
+	Blocks         *Relationship   `json:"blocks"`
+	FriendRequests *FriendRequests `json:"friendRequests"`
 }
 
 type UserCreatedMessage struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Name     string `json:"name"`
+	ID ulid.ULID `json:"id"`
 }
 
 type UserUpdatedMessage struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Bio      string `json:"bio"`
-	Location string `json:"location"`
+	ID ulid.ULID `json:"id"`
 }
 
 type UserDeletedMessage struct {
-	ID string `json:"id"`
+	ID ulid.ULID `json:"id"`
 }
 
 type UserFollowedMessage struct {
-	ID         string `json:"id"`
-	FollowedId string `json:"followedId"`
+	ID         ulid.ULID `json:"id"`
+	FollowedId ulid.ULID `json:"followedId"`
 }
 
 type UserUnfollowedMessage struct {
-	ID         string `json:"id"`
-	FollowedId string `json:"followedId"`
+	ID         ulid.ULID `json:"id"`
+	FollowedId ulid.ULID `json:"followedId"`
 }
 type UserSentFriendRequestMessage struct {
-	ID         string `json:"id"`
-	ReceiverID string `json:"receiverId"`
+	ID         ulid.ULID `json:"id"`
+	ReceiverID ulid.ULID `json:"receiverId"`
 }
 type UserAcceptedFriendRequestMessage struct {
-	ID         string `json:"id"`
-	ReceiverID string `json:"receiverId"`
+	ID         ulid.ULID `json:"id"`
+	ReceiverID ulid.ULID `json:"receiverId"`
 }
 type UserDeclinedFriendRequestMessage struct {
-	ID         string `json:"id"`
-	ReceiverID string `json:"receiverId"`
+	ID         ulid.ULID `json:"id"`
+	ReceiverID ulid.ULID `json:"receiverId"`
 }
 
 type UserRemovedFriend struct {
-	ID       string `json:"id"`
-	FriendID string `json:"friendId"`
+	ID       ulid.ULID `json:"id"`
+	FriendID ulid.ULID `json:"friendId"`
 }
 
 type UserBlockedMessage struct {
-	ID        string `json:"id"`
-	BlockedID string `json:"blockedID"`
+	ID        ulid.ULID `json:"id"`
+	BlockedID ulid.ULID `json:"blockedID"`
 }
 type UserUnblockedMessage struct {
-	ID        string `json:"id"`
-	BlockedID string `json:"blockedID"`
+	ID        ulid.ULID `json:"id"`
+	BlockedID ulid.ULID `json:"blockedID"`
 }

@@ -5,10 +5,13 @@ services:
       - "7474:7474"
       - "7687:7687"
       
-  social-graph:
-    image: mqsr/zylo/social-graph:1.0.0
+  redis:
+    image: redis:alpine
     ports:
-      - "8091:8080"
-    env_file:
-      - .env
-    
+      - "6379:6379"
+      
+  rabbitMq:
+    image: rabbitmq:management-alpine
+    ports:
+      - "15672:15672"
+      - "5672:5672"

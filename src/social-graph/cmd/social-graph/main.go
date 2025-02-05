@@ -9,6 +9,7 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/mq"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,21 +21,22 @@ func main() {
 		log.Warn().Err(err).Msg("Error loading .env file, falling back to environment variables")
 	}
 
-	client, err := config.CreateKeyVaultClient()
+	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 		return
 	}
 
-	cfg := config.Load(client)
 	logger.InitLogger()
-
 	ctx := context.Background()
+
 	db, err := storage.NewNeo4jStorage(ctx, cfg.DB.Uri, cfg.DB.Username, cfg.DB.Password)
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 		return
 	}
+
+	grpcServer := grpc.NewServer()
 
 	r, err := storage.NewRedisCacheStorage(ctx, cfg.Redis.ConnectionString)
 	if err != nil {
@@ -48,14 +50,7 @@ func main() {
 		return
 	}
 
-	grpcClient, err := api.NewProfileService(cfg.Grpc)
-	if err != nil {
-		log.Fatal().Err(err).Msg("")
-		return
-	}
-	
-	srv := api.NewServer(cfg, db, r, c, grpcClient)
-	log.Info().Msgf("Listening on %s", cfg.ListeningAddress)
+	srv := api.NewServer(cfg, db, grpcServer, r, c)
 
 	if err = srv.MountHandlers(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to mount handlers")

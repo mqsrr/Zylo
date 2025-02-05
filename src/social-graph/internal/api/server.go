@@ -11,7 +11,11 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/config"
 	m "github.com/mqsrr/zylo/social-graph/internal/middleware"
 	"github.com/mqsrr/zylo/social-graph/internal/mq"
+	"github.com/mqsrr/zylo/social-graph/internal/protos/github.com/mqsrr/zylo/social-graph/proto"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
+	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
+	"net"
 	"net/http"
 	"time"
 )
@@ -20,12 +24,12 @@ var tokenAuth *jwtauth.JWTAuth
 
 type Server struct {
 	*chi.Mux
-	cfg                  *config.Config
-	storage              storage.RelationshipStorage
-	cache                storage.CacheStorage
-	profileServiceClient ProfileService
-	consumer             mq.Consumer
-	httpServer           *http.Server
+	cfg        *config.Config
+	storage    storage.RelationshipStorage
+	grpcServer *grpc.Server
+	cache      storage.CacheStorage
+	consumer   mq.Consumer
+	httpServer *http.Server
 }
 
 func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
@@ -38,17 +42,17 @@ func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
 	}
 }
 
-func NewServer(config *config.Config, storage storage.RelationshipStorage, cache storage.CacheStorage, consumer mq.Consumer, profileServiceClient ProfileService) *Server {
+func NewServer(config *config.Config, storage storage.RelationshipStorage, grpcServer *grpc.Server, cache storage.CacheStorage, consumer mq.Consumer) *Server {
 	srv := &Server{
-		cfg:                  config,
-		storage:              storage,
-		cache:                cache,
-		consumer:             consumer,
-		profileServiceClient: profileServiceClient,
+		cfg:        config,
+		storage:    storage,
+		grpcServer: grpcServer,
+		cache:      cache,
+		consumer:   consumer,
 	}
 
 	srv.httpServer = &http.Server{
-		Addr:    config.ListeningAddress,
+		Addr:    config.Port,
 		Handler: srv,
 	}
 
@@ -76,28 +80,28 @@ func (s *Server) MountHandlers() error {
 	r.Use(jwtauth.Verifier(tokenAuth))
 	r.Use(jwtauth.Authenticator(tokenAuth))
 
-	r.Route("/api/users/{userID}", func(r chi.Router) {
+	r.Route("/api/users/{id}", func(r chi.Router) {
 
 		r.Get("/relationships", m.MustUlidParams(s.HandleGetUserWithRelationships))
 
 		r.Route("/followers", func(r chi.Router) {
 			r.Get("/", m.MustUlidParams(s.HandleGetFollowers))
 			r.Get("/me", m.MustUlidParams(s.HandleGetFollowedPeople))
-			r.Post("/{followedID}", m.MustUlidParams(s.HandleFollowUser, "followedID"))
-			r.Delete("/{followedID}", m.MustUlidParams(s.HandleUnfollowUser, "followedID"))
+			r.Post("/{followedId}", m.MustUlidParams(s.HandleFollowUser, "followedId"))
+			r.Delete("/{followedId}", m.MustUlidParams(s.HandleUnfollowUser, "followedId"))
 		})
 		r.Route("/friends", func(r chi.Router) {
 			r.Get("/", m.MustUlidParams(s.HandleGetFriends))
-			r.Delete("/{friendID}", m.MustUlidParams(s.HandleRemoveFriend, "friendID"))
+			r.Delete("/{friendId}", m.MustUlidParams(s.HandleRemoveFriend, "friendId"))
 			r.Get("/requests", m.MustUlidParams(s.HandleGetPendingFriendRequests))
-			r.Post("/requests/{receiverID}", m.MustUlidParams(s.HandleSendFriendRequest, "receiverID"))
-			r.Put("/requests/{receiverID}", m.MustUlidParams(s.HandleAcceptFriendRequest, "receiverID"))
-			r.Delete("/requests/{receiverID}", m.MustUlidParams(s.HandleDeclineFriendRequest, "receiverID"))
+			r.Post("/requests/{receiverId}", m.MustUlidParams(s.HandleSendFriendRequest, "receiverId"))
+			r.Put("/requests/{receiverId}", m.MustUlidParams(s.HandleAcceptFriendRequest, "receiverId"))
+			r.Delete("/requests/{receiverId}", m.MustUlidParams(s.HandleDeclineFriendRequest, "receiverId"))
 		})
 		r.Route("/blocks", func(r chi.Router) {
 			r.Get("/", m.MustUlidParams(s.HandleGetBlockedPeople))
-			r.Post("/{blockedID}", m.MustUlidParams(s.HandleBlockUser, "blockedID"))
-			r.Delete("/{blockedID}", m.MustUlidParams(s.HandleUnblockUser, "blockedID"))
+			r.Post("/{blockedId}", m.MustUlidParams(s.HandleBlockUser, "blockedId"))
+			r.Delete("/{blockedId}", m.MustUlidParams(s.HandleUnblockUser, "blockedId"))
 		})
 	})
 
@@ -105,13 +109,12 @@ func (s *Server) MountHandlers() error {
 		return err
 	}
 
-	if err := s.HandleUserUpdatedMessage(); err != nil {
-		return err
-	}
-
 	if err := s.HandleUserDeletedMessage(); err != nil {
 		return err
 	}
+
+	relSvc := NewRelationshipServiceServer(s.storage)
+	proto.RegisterRelationshipServiceServer(s.grpcServer, relSvc)
 
 	s.Mux = r
 	return nil
@@ -119,7 +122,20 @@ func (s *Server) MountHandlers() error {
 
 func (s *Server) ListenAndServe() error {
 	go func() {
+		log.Info().Msgf("HTTP server is listening on %s", s.cfg.Port)
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			panic(err)
+		}
+	}()
+
+	go func() {
+		lis, err := net.Listen("tcp", s.cfg.GrpcServer.Port)
+		if err != nil {
+			panic(err)
+		}
+
+		log.Info().Msgf("gRPC server is listening on %s", s.cfg.GrpcServer.Port)
+		if err := s.grpcServer.Serve(lis); err != nil {
 			panic(err)
 		}
 	}()
@@ -136,9 +152,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	if err := s.profileServiceClient.CloseConnection(); err != nil {
-		return err
-	}
-
+	s.grpcServer.GracefulStop()
 	return nil
 }

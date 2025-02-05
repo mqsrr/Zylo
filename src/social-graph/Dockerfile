@@ -1,25 +1,18 @@
-ARG GO_VERSION=1.23.2-bullseye
+ARG GO_VERSION=1.23.6-bookworm
 
-ARG APP_NAME_ARG=social-graph
-
-FROM golang:$GO_VERSION AS builder
-ARG APP_NAME_ARG
-WORKDIR /usr/src/${APP_NAME_ARG}
+FROM golang:$GO_VERSION AS build
+WORKDIR /usr/src/app
 
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -v -o /usr/local/bin/${APP_NAME_ARG} ./cmd/${APP_NAME_ARG}/
+RUN CGO_ENABLED=0 GOOS=linux go build -o /usr/local/bin/app ./cmd/social-graph
 
-FROM debian:bullseye-slim
-ARG APP_NAME_ARG
+FROM gcr.io/distroless/static-debian12
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /usr/local/bin/${APP_NAME_ARG} /usr/local/bin/${APP_NAME_ARG}
-
+COPY --from=build /usr/local/bin/app /usr/local/bin/app
 EXPOSE 8080
-CMD ["/usr/local/bin/social-graph"]
+EXPOSE 50051
+
+CMD ["/usr/local/bin/app"]

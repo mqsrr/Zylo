@@ -1,4 +1,4 @@
-name: Build Media Service
+name: Build and Push Media Service
 
 on:
   push:
@@ -67,6 +67,7 @@ jobs:
 
       - name: Upload scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: 'trivy-results.sarif'
 
@@ -84,13 +85,11 @@ jobs:
           images: |
               ${{ secrets.MEDIA_INTERACTION_IMAGE }}
           tags: |
-            type=match,pattern=media-service/v(.*)
-            type=match,pattern=media-service/v(\d.\d)
-            type=match,pattern=media-service/v(\d)
+            type=match,pattern=media-service/v(.*),group=1
+            type=match,pattern=media-service/v(\d.\d),group=1
+            type=match,pattern=media-service/v(\d),group=1
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
-        env:
-          DOCKER_METADATA_SHORT_SHA_LENGTH: 8
           
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
@@ -119,7 +118,7 @@ jobs:
       - name: Run vulnerability scanner
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: '${{ secrets.MEDIA_DOCKER_IMAGE }}:sha-${{ github.sha }}'
+          image-ref: '${{ fromJSON(steps.meta.outputs.json).tags[1] }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
 

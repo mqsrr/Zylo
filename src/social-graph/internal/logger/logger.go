@@ -15,8 +15,6 @@ func InitLogger() {
 
 	ENVIRONMENT := config.DefaultConfig.Environment
 	if ENVIRONMENT == "Development" {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-		return
 	}
 }
