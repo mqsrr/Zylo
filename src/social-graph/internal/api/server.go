@@ -14,6 +14,8 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/protos/github.com/mqsrr/zylo/social-graph/proto"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 	"net"
 	"net/http"
@@ -24,12 +26,14 @@ var tokenAuth *jwtauth.JWTAuth
 
 type Server struct {
 	*chi.Mux
-	cfg        *config.Config
-	storage    storage.RelationshipStorage
-	grpcServer *grpc.Server
-	cache      storage.CacheStorage
-	consumer   mq.Consumer
-	httpServer *http.Server
+	cfg           *config.Config
+	storage       storage.RelationshipStorage
+	grpcServer    *grpc.Server
+	cache         storage.CacheStorage
+	consumer      mq.Consumer
+	traceProvider *trace.TracerProvider
+	meterProvider *metric.MeterProvider
+	httpServer    *http.Server
 }
 
 func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
@@ -42,13 +46,15 @@ func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
 	}
 }
 
-func NewServer(config *config.Config, storage storage.RelationshipStorage, grpcServer *grpc.Server, cache storage.CacheStorage, consumer mq.Consumer) *Server {
+func NewServer(config *config.Config, storage storage.RelationshipStorage, grpcServer *grpc.Server, cache storage.CacheStorage, consumer mq.Consumer, traceProvider *trace.TracerProvider, meterProvider *metric.MeterProvider) *Server {
 	srv := &Server{
-		cfg:        config,
-		storage:    storage,
-		grpcServer: grpcServer,
-		cache:      cache,
-		consumer:   consumer,
+		cfg:           config,
+		storage:       storage,
+		grpcServer:    grpcServer,
+		cache:         cache,
+		consumer:      consumer,
+		traceProvider: traceProvider,
+		meterProvider: meterProvider,
 	}
 
 	srv.httpServer = &http.Server{
@@ -149,6 +155,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	if err := s.consumer.Shutdown(); err != nil {
+		return err
+	}
+
+	if err := s.traceProvider.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	if err := s.meterProvider.Shutdown(ctx); err != nil {
 		return err
 	}
 

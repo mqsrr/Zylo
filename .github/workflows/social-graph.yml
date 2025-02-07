@@ -81,11 +81,11 @@ jobs:
           images: |
               ${{ secrets.SOCIAL_DOCKER_IMAGE }}
           tags: |
-            type=match,pattern=social-graph/v(.*),group=1
-            type=match,pattern=social-graph/v(\d.\d),group=1
-            type=match,pattern=social-graph/v(\d),group=1
+            type=match,pattern=social-graph/v?(\d+\.\d+\.\d+(-[a-zA-Z]+\.\d+)?)$,group=1
+            type=match,pattern=social-graph/v?(\d+\.\d+)\.\d+$,group=1,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
+            type=match,pattern=social-graph/v?(\d+)\.\d+\.\d+$,group=1,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ (github.event.repository.default_branch == github.ref_name || startsWith(github.ref, 'refs/tags/')) && !contains(github.ref_name, '-') }}
 
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
@@ -114,7 +114,7 @@ jobs:
       - name: Run vulnerability scanner
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: '${{ fromJSON(steps.meta.outputs.json).tags[1] }}'
+          image-ref: '${{ fromJSON(steps.meta.outputs.json).tags[0] }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
 

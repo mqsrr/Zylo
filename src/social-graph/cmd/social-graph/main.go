@@ -5,6 +5,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mqsrr/zylo/social-graph/internal/api"
 	"github.com/mqsrr/zylo/social-graph/internal/config"
+	"github.com/mqsrr/zylo/social-graph/internal/decorators"
 	"github.com/mqsrr/zylo/social-graph/internal/logger"
 	"github.com/mqsrr/zylo/social-graph/internal/mq"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
@@ -30,12 +31,23 @@ func main() {
 	logger.InitLogger()
 	ctx := context.Background()
 
-	db, err := storage.NewNeo4jStorage(ctx, cfg.DB.Uri, cfg.DB.Username, cfg.DB.Password)
+	tp, err := api.InitTracer(ctx)
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 		return
 	}
 
+	mp, err := api.InitMeter(ctx)
+	if err != nil {
+		log.Fatal().Err(err).Msg("")
+		return
+	}
+
+	db, err := storage.NewNeo4jStorage(ctx, cfg.DB.Uri, cfg.DB.Username, cfg.DB.Password)
+	if err != nil {
+		log.Fatal().Err(err).Msg("")
+		return
+	}
 	grpcServer := grpc.NewServer()
 
 	r, err := storage.NewRedisCacheStorage(ctx, cfg.Redis.ConnectionString)
@@ -50,7 +62,13 @@ func main() {
 		return
 	}
 
-	srv := api.NewServer(cfg, db, grpcServer, r, c)
+	cachedDb := decorators.NewCachedNeo4jStorage(db, cfg.Redis, r)
+	observableDb, err := decorators.NewObservableNeo4jStorage(cachedDb, tp, mp)
+	if err != nil {
+		log.Fatal().Err(err).Msg("")
+	}
+
+	srv := api.NewServer(cfg, observableDb, grpcServer, r, c, tp, mp)
 
 	if err = srv.MountHandlers(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to mount handlers")

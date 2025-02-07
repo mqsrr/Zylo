@@ -7,24 +7,16 @@ import (
 	"time"
 )
 
-type RedisClient interface {
-	HSet(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
-	HGet(ctx context.Context, key, field string) *redis.StringCmd
-	HDel(ctx context.Context, key string, fields ...string) *redis.IntCmd
-	HExpire(ctx context.Context, key string, expiration time.Duration, fields ...string) *redis.IntSliceCmd
-	HScan(ctx context.Context, key string, cursor uint64, match string, count int64) *redis.ScanCmd
-	Ping(ctx context.Context) *redis.StatusCmd
-}
-
 type CacheStorage interface {
 	HSet(ctx context.Context, key, field string, v any, expire time.Duration) error
 	HGet(ctx context.Context, key, field string, v any) error
 	HDelete(ctx context.Context, key string, fields ...string) error
 	HDeleteAll(ctx context.Context, key, pattern string) error
+	Del(ctx context.Context, keys ...string) error
 }
 
 type RedisCacheStorage struct {
-	redis RedisClient
+	redis *redis.Client
 }
 
 func NewRedisCacheStorage(ctx context.Context, addr string) (*RedisCacheStorage, error) {
@@ -90,4 +82,8 @@ func (r *RedisCacheStorage) HDeleteAll(ctx context.Context, key, pattern string)
 		}
 	}
 	return nil
+}
+
+func (r *RedisCacheStorage) Del(ctx context.Context, keys ...string) error {
+	return r.redis.Del(ctx, keys...).Err()
 }

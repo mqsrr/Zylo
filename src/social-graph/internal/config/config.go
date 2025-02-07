@@ -126,6 +126,7 @@ func loadConfigFromFile(filePath string) (*Config, error) {
 	}
 
 	DefaultConfig = config.ServerConfig
+	config.Redis.Expire = config.Redis.Expire * time.Minute
 	return &config, nil
 }
 
