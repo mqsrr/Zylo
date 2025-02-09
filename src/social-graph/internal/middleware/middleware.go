@@ -8,7 +8,9 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/types"
 	"github.com/oklog/ulid/v2"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 	"go.opentelemetry.io/otel/trace"
 	"net/http"
@@ -48,10 +50,20 @@ func ErrHandler(h ErrHandlerFunc) http.HandlerFunc {
 	}
 }
 
-func Instrumented(tracer trace.Tracer) func(http.Handler) http.Handler {
+func Instrumented(traceProvider trace.TracerProvider, meterProvider metric.MeterProvider) func(http.Handler) http.Handler {
+
+	tracer := traceProvider.Tracer("api")
+	meter := meterProvider.Meter("api")
+
+	requestCounter, _ := meter.Int64Counter("relationships_api_request_total", metric.WithDescription("Total requests to RelationshipStorage"))
+	requestLatency, _ := meter.Float64Histogram("relationships_api_duration_seconds",
+		metric.WithDescription("Latency of RelationshipStorage"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx, span := tracer.Start(r.Context(), fmt.Sprintf("%s %s", r.Method, r.URL.Path),
+			methodName := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
+			ctx, span := tracer.Start(r.Context(), methodName,
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
 					semconv.HTTPRequestMethodKey.String(r.Method),
@@ -60,10 +72,16 @@ func Instrumented(tracer trace.Tracer) func(http.Handler) http.Handler {
 					semconv.ServerPort(8080),
 					semconv.HTTPRoute(r.URL.Path)),
 			)
+			requestCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("method", methodName)))
+
 			defer span.End()
 			rw := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-			next.ServeHTTP(rw, r.WithContext(ctx))
+			startTime := time.Now()
 
+			next.ServeHTTP(rw, r.WithContext(ctx))
+			duration := time.Since(startTime).Seconds()
+
+			requestLatency.Record(ctx, duration, metric.WithAttributes(attribute.String("method", methodName)))
 			span.SetAttributes(semconv.HTTPResponseStatusCode(rw.Status()))
 		})
 	}

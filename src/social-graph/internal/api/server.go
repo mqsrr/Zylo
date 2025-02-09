@@ -85,7 +85,7 @@ func (s *Server) MountHandlers() error {
 		middleware.RealIP,
 		middleware.Recoverer,
 		m.ZerologMiddleware,
-		m.Instrumented(s.traceProvider.Tracer("social-graph-api")),
+		m.Instrumented(s.traceProvider, s.meterProvider),
 		jwtauth.Verifier(tokenAuth),
 		jwtauth.Authenticator(tokenAuth))
 
