@@ -213,17 +213,16 @@ func (c *CachedNeo4jStorage) GetPendingFriendRequests(ctx context.Context, userI
 func (c *CachedNeo4jStorage) RemoveFriend(ctx context.Context, userID, friendID ulid.ULID) (bool, error) {
 	userIDString := userID.String()
 	friendIDString := friendID.String()
-	cacheField := "friends"
 
 	if ok, err := c.inner.RemoveFriend(ctx, userID, friendID); !ok || err != nil {
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, userIDString, cacheField); err != nil {
+	if err := c.cache.HDelete(ctx, userIDString, "friends", "relationships"); err != nil {
 		log.Warn().Str("user_id", userIDString).Err(err).Msg("failed to invalidate cache for user friends")
 	}
 
-	if err := c.cache.HDelete(ctx, friendIDString, cacheField); err != nil {
+	if err := c.cache.HDelete(ctx, friendIDString, "friends", "relationships"); err != nil {
 		log.Warn().Str("user_id", friendIDString).Err(err).Msg("failed to invalidate cache for user friends")
 	}
 
@@ -238,11 +237,11 @@ func (c *CachedNeo4jStorage) FollowUser(ctx context.Context, followerID, followe
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, followerIDString, "followed"); err != nil {
+	if err := c.cache.HDelete(ctx, followerIDString, "followed", "relationships"); err != nil {
 		log.Warn().Str("user_id", followerIDString).Err(err).Msg("failed to invalidate cache for user following list")
 	}
 
-	if err := c.cache.HDelete(ctx, followedIDString, "followers"); err != nil {
+	if err := c.cache.HDelete(ctx, followedIDString, "followers", "relationships"); err != nil {
 		log.Warn().Str("user_id", followedIDString).Err(err).Msg("failed to invalidate cache for user followed list")
 	}
 
@@ -257,11 +256,11 @@ func (c *CachedNeo4jStorage) UnfollowUser(ctx context.Context, followerID, follo
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, followerIDString, "followed"); err != nil {
+	if err := c.cache.HDelete(ctx, followerIDString, "followed", "relationships"); err != nil {
 		log.Warn().Str("user_id", followerIDString).Err(err).Msg("failed to invalidate cache for user following list")
 	}
 
-	if err := c.cache.HDelete(ctx, followedIDString, "followers"); err != nil {
+	if err := c.cache.HDelete(ctx, followedIDString, "followers", "relationships"); err != nil {
 		log.Warn().Str("user_id", followedIDString).Err(err).Msg("failed to invalidate cache for user followed list")
 	}
 
@@ -276,11 +275,11 @@ func (c *CachedNeo4jStorage) SendFriendRequest(ctx context.Context, userID, rece
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, userIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, userIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", userIDString).Err(err).Msg("failed to invalidate cache for user friend requests")
 	}
 
-	if err := c.cache.HDelete(ctx, receiverIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, receiverIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", receiverIDString).Err(err).Msg("failed to invalidate cache for user friend requests")
 	}
 
@@ -295,11 +294,11 @@ func (c *CachedNeo4jStorage) AcceptFriendRequest(ctx context.Context, userID, re
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, userIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, userIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", userIDString).Err(err).Msg("failed to invalidate cache for user friend requests")
 	}
 
-	if err := c.cache.HDelete(ctx, receiverIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, receiverIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", receiverIDString).Err(err).Msg("failed to invalidate cache for user friend requests")
 	}
 
@@ -314,11 +313,11 @@ func (c *CachedNeo4jStorage) DeclineFriendRequest(ctx context.Context, userID, r
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, userIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, userIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", userIDString).Err(err).Msg("failed to invalidate cache for user friend requests")
 	}
 
-	if err := c.cache.HDelete(ctx, receiverIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, receiverIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", receiverIDString).Err(err).Msg("failed to invalidate cache for user friend requests")
 	}
 
@@ -333,11 +332,11 @@ func (c *CachedNeo4jStorage) BlockUser(ctx context.Context, blockerID, blockedID
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, blockerIDString, "blocks"); err != nil {
+	if err := c.cache.HDelete(ctx, blockerIDString, "blocks", "relationships"); err != nil {
 		log.Warn().Str("user_id", blockerIDString).Err(err).Msg("failed to invalidate cache for user blocks")
 	}
 
-	if err := c.cache.HDelete(ctx, blockedIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, blockedIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", blockedIDString).Err(err).Msg("failed to invalidate cache for user blocks")
 	}
 
@@ -352,11 +351,11 @@ func (c *CachedNeo4jStorage) UnblockUser(ctx context.Context, blockerID, blocked
 		return false, err
 	}
 
-	if err := c.cache.HDelete(ctx, blockerIDString, "blocks"); err != nil {
+	if err := c.cache.HDelete(ctx, blockerIDString, "blocks", "relationships"); err != nil {
 		log.Warn().Str("user_id", blockerIDString).Err(err).Msg("failed to invalidate cache for user blocks")
 	}
 
-	if err := c.cache.HDelete(ctx, blockedIDString, "pending-friend-requests"); err != nil {
+	if err := c.cache.HDelete(ctx, blockedIDString, "pending-friend-requests", "relationships"); err != nil {
 		log.Warn().Str("user_id", blockedIDString).Err(err).Msg("failed to invalidate cache for user blocks")
 	}
 
@@ -371,8 +370,8 @@ type ObservableNeo4jStorage struct {
 }
 
 func NewObservableNeo4jStorage(inner storage.RelationshipStorage, traceProvider trace.TracerProvider, meterProvider metric.MeterProvider) (*ObservableNeo4jStorage, error) {
-	tracer := traceProvider.Tracer("social-graph")
-	meter := meterProvider.Meter("social-graph")
+	tracer := traceProvider.Tracer("neo4j")
+	meter := meterProvider.Meter("neo4j")
 
 	requestCounter, err := meter.Int64Counter("relationships_storage_request_total", metric.WithDescription("Total requests to RelationshipStorage"))
 	if err != nil {
@@ -483,7 +482,7 @@ func (o *ObservableNeo4jStorage) BatchGetUserWithRelationships(ctx context.Conte
 			semconv.DBCollectionName("users"),
 			semconv.DBOperationName("BATCH_SELECT"),
 			semconv.DBSystemNeo4j,
-			attribute.Int("batch_size", len(userIDs)),
+			attribute.Int("user_ids", len(userIDs)),
 		))
 	defer span.End()
 

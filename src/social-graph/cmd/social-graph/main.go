@@ -43,14 +43,14 @@ func main() {
 		return
 	}
 
-	db, err := storage.NewNeo4jStorage(ctx, cfg.DB.Uri, cfg.DB.Username, cfg.DB.Password)
+	grpcServer := grpc.NewServer()
+	r, err := storage.NewRedisCacheStorage(ctx, cfg.Redis.ConnectionString)
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 		return
 	}
-	grpcServer := grpc.NewServer()
 
-	r, err := storage.NewRedisCacheStorage(ctx, cfg.Redis.ConnectionString)
+	observableRedis, err := decorators.NewObservableRedisStorage(r, tp, mp)
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 		return
@@ -62,13 +62,19 @@ func main() {
 		return
 	}
 
-	cachedDb := decorators.NewCachedNeo4jStorage(db, cfg.Redis, r)
-	observableDb, err := decorators.NewObservableNeo4jStorage(cachedDb, tp, mp)
+	db, err := storage.NewNeo4jStorage(ctx, cfg.DB.Uri, cfg.DB.Username, cfg.DB.Password)
+	if err != nil {
+		log.Fatal().Err(err).Msg("")
+		return
+	}
+	observableDb, err := decorators.NewObservableNeo4jStorage(db, tp, mp)
+	cachedDb := decorators.NewCachedNeo4jStorage(observableDb, cfg.Redis, observableRedis)
+
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
 
-	srv := api.NewServer(cfg, observableDb, grpcServer, r, c, tp, mp)
+	srv := api.NewServer(cfg, cachedDb, grpcServer, observableRedis, c, tp, mp)
 
 	if err = srv.MountHandlers(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to mount handlers")

@@ -58,6 +58,7 @@ func NewNeo4jStorage(ctx context.Context, uri, username, password string) (*Neo4
 	_, err = session.Run(ctx,
 		`CREATE INDEX node_range_index_id IF NOT EXISTS FOR (u:User) ON (u.id)`,
 		nil)
+
 	return storage, err
 }
 
@@ -488,7 +489,7 @@ func (n *Neo4jStorage) SendFriendRequest(ctx context.Context, userID, receiverID
 	createdAt := time.Now().Format(time.RFC3339)
 	result, err := session.Run(ctx, `
 			MATCH (u1:User {id: $id}), (u2:User {id: $receiverID})
-			WHERE NOT EXISTS ((u1)-[:FRIEND]-(u2)) AND NOT EXISTS ((u1)-[:FRIEND_REQUEST]-(u2))
+			WHERE NOT EXISTS ((u1)-[:FRIEND]-(u2)) AND NOT EXISTS ((u1)-[:FRIEND_REQUEST]-(u2)) AND NOT EXISTS ((u1)-[:BLOCKED]-(u2))
 			CREATE (u1)-[:FRIEND_REQUEST {createdAt: $createdAt}]->(u2)
 			RETURN u1, u2`,
 		map[string]interface{}{
@@ -540,10 +541,10 @@ func (n *Neo4jStorage) DeclineFriendRequest(ctx context.Context, userID, receive
 	defer session.Close(ctx)
 
 	result, err := session.Run(ctx, `
-			MATCH (sender:User {id: $id})<-[r:FRIEND_REQUEST]-(receiver:User {id: $receiverID})
+			MATCH (receiver:User {id: $id})<-[r:FRIEND_REQUEST]-(sender:User {id: $receiverID})
 			DELETE r`,
 		map[string]interface{}{
-			"userID":     userID.String(),
+			"id":         userID.String(),
 			"receiverID": receiverID.String(),
 		})
 	if err != nil {

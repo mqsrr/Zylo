@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/jwtauth/v5"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/mqsrr/zylo/social-graph/internal/config"
+	"github.com/mqsrr/zylo/social-graph/internal/decorators"
 	m "github.com/mqsrr/zylo/social-graph/internal/middleware"
 	"github.com/mqsrr/zylo/social-graph/internal/mq"
 	"github.com/mqsrr/zylo/social-graph/internal/protos/github.com/mqsrr/zylo/social-graph/proto"
@@ -79,12 +80,14 @@ func (s *Server) MountHandlers() error {
 	setupJWT(s.cfg.Jwt)
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-	r.Use(m.ZerologMiddleware)
-	r.Use(jwtauth.Verifier(tokenAuth))
-	r.Use(jwtauth.Authenticator(tokenAuth))
+	r.Use(
+		middleware.RequestID,
+		middleware.RealIP,
+		middleware.Recoverer,
+		m.ZerologMiddleware,
+		m.Instrumented(s.traceProvider.Tracer("social-graph-api")),
+		jwtauth.Verifier(tokenAuth),
+		jwtauth.Authenticator(tokenAuth))
 
 	r.Route("/api/users/{id}", func(r chi.Router) {
 
@@ -120,7 +123,12 @@ func (s *Server) MountHandlers() error {
 	}
 
 	relSvc := NewRelationshipServiceServer(s.storage)
-	proto.RegisterRelationshipServiceServer(s.grpcServer, relSvc)
+	observableServer, err := decorators.NewObservableRelationshipServer(relSvc, s.traceProvider, s.meterProvider)
+	if err != nil {
+		return err
+	}
+
+	proto.RegisterRelationshipServiceServer(s.grpcServer, observableServer)
 
 	s.Mux = r
 	return nil
