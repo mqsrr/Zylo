@@ -1,26 +1,83 @@
-﻿using Riok.Mapperly.Abstractions;
-using UserManagement.Application.Contracts.Requests.Auth;
+﻿using UserManagement.Application.Contracts.Requests.Auth;
+using UserManagement.Application.Contracts.Requests.Users;
 using UserManagement.Application.Contracts.Responses;
 using UserManagement.Application.Models;
 
 namespace UserManagement.Application.Mappers;
 
-[Mapper]
-internal static partial class UserMapper
+internal static class UserMapper
 {
-    [MapperIgnoreTarget(nameof(User.ProfileImage))]
-    [MapperIgnoreTarget(nameof(User.BackgroundImage))]
-    internal static partial User ToUser(this RegisterRequest identity);
-    
-    internal static partial UserResponse ToResponse(this User user);
-    
-    private static Ulid MapUserIdToUlid(UserId id)
+    internal static User ToUser(this RegisterRequest request)
     {
-        return id.Value;
+        return new User
+        {
+            Id = UserId.Parse(request.Id),
+            ProfileImage = null,
+            BackgroundImage = null,
+            Name = request.Name,
+            Username = request.Username,
+            Bio = request.Bio,
+            Location = request.Location,
+            BirthDate = request.BirthDate
+        };
     }
 
-    private static FileMetadataResponse MapFileMetadataToResponse(FileMetadata fileMetadata)
+    private static User ToUser(this UpdateUserRequest request)
     {
-        return fileMetadata.ToResponse();
+        return new User
+        {
+            Id = request.Id,
+            ProfileImage = null,
+            BackgroundImage = null,
+            Name = request.Name,
+            Username = null,
+            Bio = request.Bio,
+            Location = request.Location,
+            BirthDate = request.BirthDate
+        };
+    }
+
+    internal static User ToUser(this UpdateUserRequest request, string id)
+    {
+        request.Id = UserId.Parse(id);
+        return ToUser(request);
+    }
+
+    internal static GrpcUserResponse ToGrpcResponse(this User user)
+    {
+        return new GrpcUserResponse
+        {
+            Id = user.Id.ToString(),
+            ProfileImage = new UserImage
+            {
+                Url = user.ProfileImage!.AccessUrl.Url,
+                ContentType = user.ProfileImage.ContentType,
+                FileName = user.ProfileImage.FileName,
+            },
+            BackgroundImage = new UserImage
+            {
+                Url = user.BackgroundImage!.AccessUrl.Url,
+                ContentType = user.BackgroundImage.ContentType,
+                FileName = user.BackgroundImage.FileName
+            },
+            Name = user.Name,
+            Username = user.Username,
+            Birthdate = user.BirthDate.ToString("O"),
+            Bio = user.Bio,
+            Location = user.Location
+        };
+    }
+
+    internal static UserResponse ToResponse(this User user)
+    {
+        return new UserResponse
+        {
+            Id = user.Id.Value,
+            ProfileImage = user.ProfileImage!.ToResponse(),
+            BackgroundImage = user.BackgroundImage!.ToResponse(),
+            Name = user.Name,
+            Username = user.Username!,
+            BirthDate = user.BirthDate
+        };
     }
 }

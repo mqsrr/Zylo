@@ -1,4 +1,4 @@
-﻿name: "Build And Test User Management"
+﻿name: Build And Test User Management
 
 on:
   push:
@@ -34,26 +34,17 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '8.x'
-
+          dotnet-version: '9.x'
 
       - name: Restore dependencies
         run: dotnet restore UserManagement/UserManagement.csproj
 
       - name: Build
         run: dotnet build UserManagement/UserManagement.csproj --no-restore --configuration Release
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: |
-            src/user-management/UserManagement/**/bin/Release/**
-            src/user-management/UserManagement/**/obj/Release/**
-
-  unit-tests:
-    runs-on: ubuntu-latest
+  
+  security-scan:
     needs: build
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: src/user-management
@@ -61,81 +52,74 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - name: Run vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          name: build-artifacts
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+      - name: Upload scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
-          dotnet-version: '8.x'
+          sarif_file: 'trivy-results.sarif'
 
-      - name: Run unit tests
-        run: dotnet test src/user-management/UserManagement.Tests.Unit --no-build --configuration Release --collect:"XPlat Code Coverage;Format=cobertura" --results-directory ./TestResults
-
-      - name: Archive code coverage results
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-code-coverage-report
-          path: ./TestResults/
-  
-  integration-tests:
+  docker-build-and-push:
     runs-on: ubuntu-latest
-    needs: ["build", "unit-tests"]
-
+    needs: build
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          name: build-artifacts
+          images: |
+            ${{ secrets.USER_MANAGEMENT_DOCKER_IMAGE }}
+          tags: |
+            type=match,pattern=user-management/v?(\d+\.\d+\.\d+(-[a-zA-Z]+\.\d+)?)$,group=1
+            type=match,pattern=user-management/v?(\d+\.\d+)\.\d+$,group=1,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
+            type=match,pattern=user-management/v?(\d+)\.\d+\.\d+$,group=1,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
+            type=sha
+            type=raw,value=latest,enable=${{ (github.event.repository.default_branch == github.ref_name || startsWith(github.ref, 'refs/tags/')) && !contains(github.ref_name, '-') }}
 
-      - name: Setup .NET Core
-        uses: actions/setup-dotnet@v3
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
-          dotnet-version: '8.x'
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Run integration tests
-        run: dotnet test src/user-management/UserManagement.Tests.Integration --no-build --configuration Release --collect:"XPlat Code Coverage;Format=cobertura" --results-directory ./TestResults
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Archive code coverage results
-        uses: actions/upload-artifact@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
-          name: integration-tests-code-coverage-report
-          path: ./TestResults/
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          file: src/user-management/Dockerfile
+          context: src/user-management
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-  codecov:
-    runs-on: ubuntu-latest
-    needs: ["build","unit-tests","integration-tests"]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download unit test code coverage
-        uses: actions/download-artifact@v4
+      - name: Run vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          name: unit-tests-code-coverage-report
+          image-ref: '${{ fromJSON(steps.meta.outputs.json).tags[0] }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
 
-      - name: Download integration test code coverage
-        uses: actions/download-artifact@v4
+      - name: Upload scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
-          name: integration-tests-code-coverage-report
-
-      - name: Merge code coverage reports
-        run: |
-          mkdir test-coverage
-          cp ./unit-tests-code-coverage-report/** test-coverage/
-          cp ./integration-tests-code-coverage-report/** test-coverage/
-
-      - name: Download a artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: code-coverage-report
-
-      - name: Upload Test Coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          sarif_file: 'trivy-results.sarif'

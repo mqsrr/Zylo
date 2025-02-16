@@ -1,10 +1,8 @@
-﻿namespace UserManagement.Application.Messaging.Users;
+﻿using UserManagement.Application.Models;
 
-public interface UserCreated
+namespace UserManagement.Application.Messaging.Users;
+
+public sealed class UserCreated
 {
-    Ulid Id { get; }
-    
-    string Username { get; }
-    
-    string Name { get; }
+    public required UserId Id { get; init; }
 }

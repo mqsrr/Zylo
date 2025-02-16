@@ -1,9 +1,6 @@
 ﻿namespace UserManagement.Application.Settings;
 
-internal sealed class PostgresDbSettings
+public sealed class PostgresDbSettings(): BaseSettings("Postgres")
 {
-    public const string SectionName = "Postgres";
-    
     public required string ConnectionString { get; init; }
-    
 }

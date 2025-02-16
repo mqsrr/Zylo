@@ -9,7 +9,7 @@ internal sealed class UserResponse
     public required FileMetadataResponse BackgroundImage { get; init; }
 
     public required string Name { get; init; }
-    
+
     public required string Username { get; init; }
 
     public string? Bio { get; init; }
@@ -17,6 +17,5 @@ internal sealed class UserResponse
     public string? Location { get; init; }
 
     public required DateOnly BirthDate { get; init; }
-
 }
 

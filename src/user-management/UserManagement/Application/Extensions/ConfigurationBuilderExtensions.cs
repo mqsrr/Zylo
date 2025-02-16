@@ -44,7 +44,8 @@ internal static class ConfigurationBuilderExtensions
           
             Environment.SetEnvironmentVariable(key.ToString(), value.ToString());
         }
-
+        
+        config.AddEnvironmentVariables();
         return config;
     }
 
@@ -128,30 +129,10 @@ internal static class ConfigurationBuilderExtensions
                         }
 
                         context.HandleResponse();
-                    },
-                    OnAuthenticationFailed = async context =>
-                    {
-                        // Check if the response has already started
-                        if (!context.Response.HasStarted)
-                        {
-                            context.Response.ContentType = "application/json";
-                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-
-                            string errorMessage = context.Exception switch
-                            {
-                                SecurityTokenExpiredException => "Token has expired.",
-                                SecurityTokenInvalidSignatureException => "Invalid token signature.",
-                                _ => "Authentication failed."
-                            };
-
-                            await context.Response.WriteAsync($"{{\"error\": \"{errorMessage}\"}}");
-                        }
                     }
                 };
-
             });
 
         return builder.Configuration;
     }
-
 }

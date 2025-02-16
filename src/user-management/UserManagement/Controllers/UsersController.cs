@@ -2,10 +2,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using UserManagement.Application.Contracts.Requests.Users;
+using UserManagement.Application.Extensions;
 using UserManagement.Application.Helpers;
 using UserManagement.Application.Mappers;
 using UserManagement.Application.Models;
-using UserManagement.Application.Repositories.Abstractions;
+using UserManagement.Application.Services.Abstractions;
 
 namespace UserManagement.Controllers;
 
@@ -14,39 +15,28 @@ namespace UserManagement.Controllers;
 [ApiVersion(1.0)]
 public sealed class UsersController : ControllerBase
 {
-    private readonly IUserRepository _userRepository;
+    private readonly IUserService _userService;
 
-    public UsersController(IUserRepository userRepository)
+    public UsersController(IUserService userService)
     {
-        _userRepository = userRepository;
+        _userService = userService;
     }
 
     [HttpGet(ApiEndpoints.Users.GetById)]
     public async Task<IActionResult> GetById([FromRoute] string id, CancellationToken cancellationToken)
     {
-        var user = await _userRepository.GetByIdAsync(UserId.Parse(id), cancellationToken);
-        return user is not null
-            ? Ok(user.ToResponse())
-            : NotFound();
+        var user = await _userService.GetByIdAsync(UserId.Parse(id), cancellationToken);
+        return user.Match<User, IActionResult>(
+            success: u => Ok(u.ToResponse()),
+            failure: e => e.ToProblemObjectResult(HttpContext.TraceIdentifier));
     }
-    
+
     [HttpPut(ApiEndpoints.Users.Update)]
     public async Task<IActionResult> Update([FromRoute] string id, [FromForm] UpdateUserRequest request, CancellationToken cancellationToken)
     {
-        request.Id = UserId.Parse(id);
-        bool isUpdated = await _userRepository.UpdateAsync(request, request.ProfileImage, request.BackgroundImage , cancellationToken);
-        
-        return isUpdated 
-            ? NoContent()
-            : BadRequest();
-    }
-    
-    [HttpDelete(ApiEndpoints.Users.DeleteById)]
-    public async Task<IActionResult> DeleteById([FromRoute] string id, CancellationToken cancellationToken)
-    {
-        bool isDeleted = await _userRepository.DeleteByIdAsync(UserId.Parse(id), cancellationToken);
-        return isDeleted
-            ? NoContent()
-            : NotFound();
+        var userUpdateResult = await _userService.UpdateAsync(request.ToUser(id), request.ProfileImage, request.BackgroundImage, cancellationToken);
+        return userUpdateResult.Match<User,IActionResult>(
+            success: u => Ok(u.ToResponse()),
+            failure: e => e.ToProblemObjectResult(HttpContext.TraceIdentifier));
     }
 }

@@ -8,7 +8,7 @@ public sealed class OtpCode
 
     public required string Salt { get; init; }
 
-    public required DateTime CreatedAt { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
 
-    public required DateTime ExpiresAt { get; init; }
+    public required DateTimeOffset ExpiresAt { get; init; }
 }

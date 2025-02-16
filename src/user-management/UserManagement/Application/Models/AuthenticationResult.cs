@@ -2,13 +2,9 @@
 
 public sealed class AuthenticationResult
 {
-    public required bool Success { get; init; }
-    
-    public Ulid? Id { get; init; }
-    
-    public bool? EmailVerified { get; init; }
+    public required IdentityId Id { get; init; }
 
-    public AccessToken? AccessToken { get; init; }
-    
-    public string? Error { get; init; }
+    public required AccessToken AccessToken { get; init; }
+
+    public required RefreshToken RefreshToken { get; init; }
 }

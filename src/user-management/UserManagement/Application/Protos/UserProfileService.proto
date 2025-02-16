@@ -1,18 +1,35 @@
 ﻿syntax = "proto3";
 
-option csharp_namespace = "GrpcServices";
-
 service UserProfileService {
-  rpc GetProfilePicture (UserProfileRequest) returns (UserProfileResponse);
+  rpc GetUserById (GetUserByIdRequest) returns (GrpcUserResponse);
+  rpc GetBatchUsersByIds (GetBatchUsersByIdsRequest) returns (BatchUsersResponse);
 }
 
-message UserProfileRequest {
+message GetUserByIdRequest {
   string user_id = 1;
 }
 
-message UserProfileResponse {
-  string profile_picture_url = 1;
+message GetBatchUsersByIdsRequest {
+  repeated string user_ids = 1;
+}
+
+message BatchUsersResponse {
+  repeated GrpcUserResponse users = 1;
+}
+
+message GrpcUserResponse {
+  string id = 1;
+  UserImage profile_image = 2;
+  UserImage background_image = 3;
+  string name = 4;
+  string username = 5;
+  string birthdate = 6;
+  optional string bio = 7;
+  optional string location = 8;
+}
+
+message UserImage {
+  string url = 1;
   string content_type = 2;
   string file_name = 3;
-  int64 expires_in = 4;
 }

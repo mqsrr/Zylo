@@ -1,7 +1,9 @@
 ﻿using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using UserManagement.Application.Contracts.Requests.Auth;
+using UserManagement.Application.Extensions;
 using UserManagement.Application.Helpers;
+using UserManagement.Application.Mappers;
 using UserManagement.Application.Models;
 using UserManagement.Application.Services.Abstractions;
 
@@ -11,6 +13,7 @@ namespace UserManagement.Controllers;
 [ApiVersion(1.0)]
 public sealed class AuthController : ControllerBase
 {
+    private const string RefreshTokenCookieName = "refresh_token";
     private readonly IAuthService _authService;
 
     public AuthController(IAuthService authService)
@@ -21,69 +24,70 @@ public sealed class AuthController : ControllerBase
     [HttpPost(ApiEndpoints.Authentication.Register)]
     public async Task<IActionResult> Register([FromForm] RegisterRequest request, CancellationToken cancellationToken)
     {
-        var (authResult, _) = await _authService.RegisterAsync(request, cancellationToken);
-        if (!authResult.Success)
-        {
-            return BadRequest(authResult);
-        }
+        var result = await _authService.RegisterAsync(request, cancellationToken);
+        return result.Match<AuthenticationResult, IActionResult>(
+            success: authResult => {
+                var refreshTokenResponse = authResult.RefreshToken.ToResponse();
+                SetHttpOnlyCookie(RefreshTokenCookieName, refreshTokenResponse.Value, refreshTokenResponse.ExpiresAt);
+                
+                return Ok(authResult.ToResponse());
+            },
+            failure: error => error.ToProblemObjectResult(HttpContext.TraceIdentifier));
 
-        return Ok(authResult);
     }
 
     [HttpPost(ApiEndpoints.Authentication.Login)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
-        var (authResult, refreshToken) = await _authService.LoginAsync(request, cancellationToken);
-        if (!authResult.Success)
-        {
-            return BadRequest(authResult);
-        }
+        var result = await _authService.LoginAsync(request, cancellationToken);
+        return result.Match<AuthenticationResult, IActionResult>(
+            success: authResult => {
+                var refreshTokenResponse = authResult.RefreshToken.ToResponse();
+                SetHttpOnlyCookie(RefreshTokenCookieName, refreshTokenResponse.Value, refreshTokenResponse.ExpiresAt);
+                
+                return Ok(authResult.ToResponse());
+            },
+            failure: error => error.ToProblemObjectResult(HttpContext.TraceIdentifier));
 
-        if (authResult.Success && refreshToken is null)
-        {
-            return Ok(authResult);
-        }
-
-        SetHttpOnlyCookie("refresh-token", refreshToken!.Value, refreshToken.ExpirationDate);
-        return Ok(authResult);
     }
 
     [HttpPost(ApiEndpoints.Authentication.RefreshAccessToken)]
     public async Task<IActionResult> RefreshAccessToken(CancellationToken cancellationToken)
     {
-        var (authResult, refreshToken) = await _authService.RefreshAccessToken(Request.Cookies["refresh-token"], cancellationToken);
-        if (!authResult.Success)
-        {
-            return BadRequest(authResult);
-        }
-
-        SetHttpOnlyCookie("refresh-token", refreshToken!.Value, refreshToken.ExpirationDate);
-        return Ok(authResult);
+        var result = await _authService.RefreshAccessToken(Request.Cookies[RefreshTokenCookieName], cancellationToken);
+        return result.Match<AuthenticationResult, IActionResult>(
+            success: authResult => Ok(authResult.ToResponse()),
+            failure: error => error.ToProblemObjectResult(HttpContext.TraceIdentifier));
     }
 
     [HttpPost(ApiEndpoints.Authentication.RevokeRefreshToken)]
     public async Task<IActionResult> RevokeRefreshToken(CancellationToken cancellationToken)
     {
-        bool isRevoked = await _authService.RevokeRefreshToken(Request.Cookies["refresh-token"], cancellationToken);
-        if (!isRevoked)
-        {
-            return NotFound();
-        }
-
-        SetHttpOnlyCookie("refresh-token", string.Empty);
-        return NoContent();
+        var result = await _authService.RevokeRefreshToken(Request.Cookies[RefreshTokenCookieName], cancellationToken);
+        return result.Match<IActionResult>(
+            success: () => {
+                SetHttpOnlyCookie(RefreshTokenCookieName, string.Empty);
+                return NoContent();
+            },
+            failure: error => error.ToProblemObjectResult(HttpContext.TraceIdentifier));
     }
 
     [HttpPost(ApiEndpoints.Authentication.VerifyUserEmail)]
     public async Task<IActionResult> VerifyEmail([FromRoute] string id, [FromBody] VerifyEmailAddressRequest request, CancellationToken cancellationToken)
     {
-        bool isVerified = await _authService.VerifyEmailAsync(IdentityId.Parse(id), request.Otp, cancellationToken);
-        if (!isVerified)
-        {
-            return BadRequest("Email verification failed");
-        }
+        var result = await _authService.VerifyEmailAsync(IdentityId.Parse(id), request.Otp, cancellationToken);
+        return result.Match<IActionResult>(
+            success: NoContent,
+            failure: error => error.ToProblemObjectResult(HttpContext.TraceIdentifier));
+    }
 
-        return NoContent();
+    [HttpDelete(ApiEndpoints.Authentication.DeleteIdentity)]
+    public async Task<IActionResult> DeleteIdentity([FromRoute] string id, CancellationToken cancellationToken)
+    {
+        var result = await _authService.DeleteByIdAsync(IdentityId.Parse(id), cancellationToken);
+        return result.Match<IActionResult>(
+            success: NoContent,
+            failure: error => error.ToProblemObjectResult(HttpContext.TraceIdentifier));
     }
 
     private void SetHttpOnlyCookie(string cookieName, string value, DateTimeOffset? expires = null)

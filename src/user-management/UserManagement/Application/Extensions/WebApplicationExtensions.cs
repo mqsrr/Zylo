@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using Dapper;
 using DbUp;
 using Microsoft.Extensions.Options;
 using UserManagement.Application.Settings;
@@ -23,10 +24,11 @@ internal static class WebApplicationExtensions
             upgradeEngine.PerformUpgrade();
         }
         
-        Dapper.SqlMapper.AddTypeHandler(new IdentityIdTypeHandler());
-        Dapper.SqlMapper.AddTypeHandler(new UserIdTypeHandler());
-        Dapper.SqlMapper.AddTypeHandler(new UlidTypeHandler());
-        Dapper.SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
+        SqlMapper.AddTypeHandler(new IdentityIdTypeHandler());
+        SqlMapper.AddTypeHandler(new UserIdTypeHandler());
+        SqlMapper.AddTypeHandler(new UlidTypeHandler());
+        SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
+        SqlMapper.AddTypeHandler(new DateTimeTypeHandler());
         
         return app;
     }

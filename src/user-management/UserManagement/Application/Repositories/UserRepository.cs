@@ -1,146 +1,61 @@
 ﻿using System.Data;
 using Dapper;
-using Mediator;
-using Npgsql;
-using UserManagement.Application.Contracts.Requests.Users;
 using UserManagement.Application.Factories.Abstractions;
 using UserManagement.Application.Helpers;
-using UserManagement.Application.Messaging.Users;
 using UserManagement.Application.Models;
+using UserManagement.Application.Models.Errors;
 using UserManagement.Application.Repositories.Abstractions;
-using UserManagement.Application.Services.Abstractions;
 
 namespace UserManagement.Application.Repositories;
 
 internal sealed class UserRepository : IUserRepository
 {
     private readonly IDbConnectionFactory _dbConnectionFactory;
-    private readonly IImageService _imageService;
-    private readonly IPublisher _publisher;
 
-    public UserRepository(IDbConnectionFactory dbConnectionFactory, IPublisher publisher, IImageService imageService)
+    public UserRepository(IDbConnectionFactory dbConnectionFactory)
     {
         _dbConnectionFactory = dbConnectionFactory;
-        _publisher = publisher;
-        _imageService = imageService;
     }
 
-    public async Task<User?> GetByIdAsync(UserId id, CancellationToken cancellationToken)
+    public async Task<Result<User>> GetByIdAsync(UserId id, CancellationToken cancellationToken)
     {
         await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        try
+        var user = await connection.QueryFirstOrDefaultAsync<User>(SqlQueries.Users.GetById, new
         {
-            var user = await connection.QueryFirstOrDefaultAsync<User>(SqlQueries.Users.GetById, new { Id = id.Value }, transaction);
-            if (user is null)
-            {
-                return null;
-            }
+            Id = id
+        });
+
+        return user is not null
+            ? user
+            : new NotFoundError("User not found");
+    }
+
+    public async Task<Result<IEnumerable<User>>> GetBatchByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
+        var result = await connection.QueryAsync<User>(SqlQueries.Users.GetByIds, new
+        {
+            Ids = ids.Select(i => i.Value.ToByteArray()).ToArray()
+        });
         
-            await transaction.CommitAsync(cancellationToken);
-            user.ProfileImage = await _imageService.GetImageAsync(id, ImageCategory.Profile, cancellationToken);
-            user.BackgroundImage = await _imageService.GetImageAsync(id, ImageCategory.Background, cancellationToken);
-            
-            return user;
-
-        }
-        catch (PostgresException)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return null;
-        }
+        return Result.Success(result);
     }
 
-    public async Task<bool> CreateAsync(User user, IFormFile profileImage, IFormFile backgroundImage, CancellationToken cancellationToken)
+    public async Task<Result> CreateAsync(User user, IDbConnection connection, IDbTransaction transaction)
     {
-        await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        try
-        {
-            int affectedRows = await connection.ExecuteAsync(SqlQueries.Users.Create, user, transaction);
-            if (affectedRows < 1)
-            {
-                return false;
-            }
-            await transaction.CommitAsync(cancellationToken);
-
-            var profileUpload = _imageService.UploadImageAsync(user.Id, profileImage, ImageCategory.Profile, cancellationToken);
-            var backgroundUpload =  _imageService.UploadImageAsync(user.Id, backgroundImage, ImageCategory.Background, cancellationToken);
-        
-            bool[] result = await Task.WhenAll(profileUpload, backgroundUpload);
-            return result.All(r => r);
-        }
-        catch (PostgresException)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return false;
-        }
+        int affectedRows = await connection.ExecuteAsync(SqlQueries.Users.Create, user, transaction);
+        return affectedRows > 0
+            ? Result.Success()
+            : Result.Failure();
     }
 
-    public async Task<bool> UpdateAsync(UpdateUserRequest updatedUser, IFormFile profileImage, IFormFile backgroundImage, CancellationToken cancellationToken)
+    public async Task<Result> UpdateAsync(User user, CancellationToken cancellationToken)
     {
         await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
-        try
-        {
-            int affectedRows = await connection.ExecuteAsync(SqlQueries.Users.Update, updatedUser, transaction);
-            if (affectedRows < 1)
-            {
-                return false;
-            }
-            
-            await transaction.CommitAsync(cancellationToken);
-            
-            var profileUpload = _imageService.UploadImageAsync(updatedUser.Id, profileImage, ImageCategory.Profile, cancellationToken);
-            var backgroundUpload =  _imageService.UploadImageAsync(updatedUser.Id, backgroundImage, ImageCategory.Background, cancellationToken);
-        
-            bool[] result = await Task.WhenAll(profileUpload, backgroundUpload);
-            if (!result.All(r => r))
-            {
-                return false;
-            }
+        int affectedRows = await connection.ExecuteAsync(SqlQueries.Users.Update, user);
 
-            await _publisher.Publish(new UserUpdatedNotification
-            {
-                Id = updatedUser.Id,
-                Name = updatedUser.Name,
-                Bio = updatedUser.Bio,
-                Location = updatedUser.Location
-            }, cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (PostgresException)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return false;
-        }
-    }
-
-    public async Task<bool> DeleteByIdAsync(UserId id, CancellationToken cancellationToken)
-    {
-        await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        try
-        {
-            int affectedRows = await connection.ExecuteAsync(SqlQueries.Users.DeleteById, new { Id = id }, transaction);
-            if (affectedRows <= 0)
-            {
-                return false;
-            }
-
-            await transaction.CommitAsync(cancellationToken);
-            await _publisher.Publish(new UserDeletedNotification
-            {
-                Id = id
-            }, cancellationToken).ConfigureAwait(false);
-
-            await _imageService.DeleteAllImagesAsync(id, cancellationToken);
-            return true;
-        }
-        catch (PostgresException)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return false;
-        }
+        return affectedRows > 0
+            ? Result.Success()
+            : Result.Failure();
     }
 }

@@ -28,10 +28,11 @@ public sealed class Identity
 
     public required string EmailSalt { get; init; }
 
+    public required string EmailUniqueHash { get; init; }
+
     public required bool EmailVerified { get; init; }
 
     public required string PasswordHash { get; init; }
 
     public required string PasswordSalt { get; init; }
-
 }

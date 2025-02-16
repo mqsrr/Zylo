@@ -5,42 +5,45 @@ internal static class SqlQueries
     public sealed class Authentication
     {
         public const string Register = """
-                                       INSERT INTO Identities (id, username, password_hash, password_salt, email_hash, email_salt, email_verified) 
-                                       VALUES (@Id, @Username, @PasswordHash, @PasswordSalt, @EmailHash, @EmailSalt, FALSE);
+                                       INSERT INTO Identities (id, username, password_hash, password_salt, email_hash, email_salt, email_unique_hash, email_verified) 
+                                       VALUES (@Id, @Username, @PasswordHash, @PasswordSalt, @EmailHash, @EmailSalt,@EmailUniqueHash, FALSE);
                                        """;
 
         public const string GetIdentityByUsername = """
-                                                    SELECT id, username, password_hash AS PasswordHash,password_salt AS PasswordSalt, email_hash AS EmailHash, email_salt AS EmailSalt, email_verified AS EmailVerified
+                                                    SELECT id, username, password_hash AS PasswordHash,password_salt AS PasswordSalt,
+                                                           email_hash AS EmailHash, email_salt AS EmailSalt,email_unique_hash AS EmailUniqueHash,email_verified AS EmailVerified
                                                     FROM Identities
-                                                    WHERE Username = @Username;
+                                                    WHERE username = @Username;
                                                     """;
 
         public const string GetIdentityById = """
-                                              SELECT id, username, password_hash AS PasswordHash,password_salt AS PasswordSalt, email_hash AS EmailHash, email_salt AS EmailSalt, email_verified AS EmailVerified
+                                              SELECT id, username, password_hash AS PasswordHash,password_salt AS PasswordSalt, email_hash AS EmailHash, email_salt AS EmailSalt, email_unique_hash AS EmailUniqueHash, email_verified AS EmailVerified
                                               FROM Identities
-                                              WHERE Id = @Id;
+                                              WHERE id = @Id;
                                               """;
 
         public const string GetRefreshToken = """
-                                              SELECT *
+                                              SELECT token AS Token, identity_id AS IdentityId, created_at AS CreatedAt, expires_at AS ExpiresAt
                                               FROM RefreshTokens
-                                              WHERE Token = @Token;
+                                              WHERE token = @Token;
                                               """;
 
         public const string GetRefreshTokenByIdentityId = """
-                                                          SELECT *
+                                                          SELECT token AS Token, identity_id AS IdentityId, created_at AS CreatedAt, expires_at AS ExpiresAt
                                                           FROM RefreshTokens
-                                                          WHERE IdentityId = @IdentityId;
+                                                          WHERE identity_id = @IdentityId;
                                                           """;
 
         public const string CreateRefreshToken = """
-                                                 INSERT INTO RefreshTokens (Token, ExpirationDate, IdentityId)
-                                                 VALUES (@Token, @ExpirationDate, @IdentityId);
+                                                 INSERT INTO RefreshTokens (token, expires_at, identity_id)
+                                                 VALUES (@Token, @ExpiresAt, @IdentityId);
                                                  """;
 
         public const string DeleteById = "DELETE FROM Identities WHERE Id = @Id";
 
-        public const string DeleteRefreshTokenById = "DELETE FROM RefreshTokens WHERE Token = @Token";
+        public const string DeleteRefreshToken = "DELETE FROM RefreshTokens WHERE Token = @Token;";
+
+        public const string DeleteAllRefreshTokensById = "DELETE FROM RefreshTokens WHERE Id = @Id;";
 
         public const string CreateOtpCode = """
                                             INSERT INTO otp (id, code_hash, salt, expires_at)
@@ -52,15 +55,15 @@ internal static class SqlQueries
                                          WHERE id = @Id;
                                          """;
 
-        public const string DeleteOtpCode = """
-                                            DELETE FROM otp
-                                            WHERE Id = @Id;
-                                            """;
+        public const string DeleteOtpCodeByIdentityId = """
+                                                        DELETE FROM otp
+                                                        WHERE id = @Id;
+                                                        """;
 
         public const string EmailVerified = """
                                             UPDATE Identities
                                             SET email_verified = true
-                                            WHERE Id = @Id;
+                                            WHERE id = @Id;
                                             """;
     }
 
@@ -74,8 +77,14 @@ internal static class SqlQueries
         public const string GetById = """
                                       SELECT *
                                       FROM Users
-                                      WHERE Id = @Id;
+                                      WHERE id = @Id;
                                       """;
+
+        public const string GetByIds = """
+                                       SELECT *
+                                       FROM Users
+                                       WHERE id = ANY(@Ids);
+                                       """;
 
         public const string Update = """
                                      UPDATE Users
@@ -83,9 +92,7 @@ internal static class SqlQueries
                                          Bio             = @Bio,
                                          Location        = @Location,
                                          BirthDate       = @Birthdate
-                                     WHERE Id = @Id
+                                     WHERE id = @Id
                                      """;
-
-        public const string DeleteById = "DELETE FROM Users WHERE Id = @Id";
     }
 }

@@ -1,15 +1,16 @@
-﻿using UserManagement.Application.Contracts.Requests.Users;
+﻿using System.Data;
+using UserManagement.Application.Helpers;
 using UserManagement.Application.Models;
 
 namespace UserManagement.Application.Repositories.Abstractions;
 
 public interface IUserRepository
 {
-    Task<User?> GetByIdAsync(UserId id, CancellationToken cancellationToken);
-    
-    Task<bool> CreateAsync(User user, IFormFile profileImage, IFormFile backgroundImage, CancellationToken cancellationToken);
-    
-    Task<bool> UpdateAsync(UpdateUserRequest updatedUser, IFormFile profileImage, IFormFile backgroundImage,  CancellationToken cancellationToken);
-    
-    Task<bool> DeleteByIdAsync(UserId id, CancellationToken cancellationToken);
+    Task<Result<User>> GetByIdAsync(UserId id, CancellationToken cancellationToken);
+
+    Task<Result<IEnumerable<User>>> GetBatchByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken);
+
+    Task<Result> CreateAsync(User user, IDbConnection connection, IDbTransaction transaction);
+
+    Task<Result> UpdateAsync(User user, CancellationToken cancellationToken);
 }

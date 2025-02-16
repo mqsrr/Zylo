@@ -15,7 +15,7 @@ internal sealed class  TokenWriter : ITokenWriter
 {
     private readonly JwtSettings _jwtSettings;
     private readonly TimeProvider _timeProvider;
-    
+
     public TokenWriter(IOptions<JwtSettings> jwtSettings, TimeProvider timeProvider)
     {
         _jwtSettings = jwtSettings.Value;
@@ -60,7 +60,7 @@ internal sealed class  TokenWriter : ITokenWriter
             ExpirationDate = expiresAt
         };
     }
-    
+
     public RefreshToken GenerateRefreshToken(IdentityId id)
     {
         byte[] randomNumber = ArrayPool<byte>.Shared.Rent(64);
@@ -72,8 +72,8 @@ internal sealed class  TokenWriter : ITokenWriter
         return new RefreshToken
         {
             Token = randomNumber,
-            IdentityId = id.Value,
-            ExpirationDate = _timeProvider.GetUtcNow().DateTime.AddDays(30)
+            IdentityId = id,
+            ExpiresAt = _timeProvider.GetUtcNow().DateTime.AddDays(30),
         };
     }
 }

@@ -1,11 +1,11 @@
 ﻿namespace UserManagement.Application.Messaging.Users;
-public interface VerifyEmailAddress
+public sealed class VerifyEmailAddress
 {
-    string Otp { get; }
+    public required string Otp { get; init; }
 
-    string OtpIv { get; }
+    public required string OtpIv { get; init; }
 
-    string Email { get;}
+    public required string Email { get; init; }
 
-    string EmailIv { get;}
+    public required string EmailIv { get; init; }
 }

@@ -2,7 +2,7 @@
 
 namespace UserManagement.Application.Messaging.Users;
 
-public interface UserDeleted
+public sealed class UserDeleted
 {
-     Ulid Id { get; }
+     public required UserId Id { get; init; }
 }

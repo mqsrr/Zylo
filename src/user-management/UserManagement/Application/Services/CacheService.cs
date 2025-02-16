@@ -22,6 +22,16 @@ internal sealed class CacheService : ICacheService
             : JsonConvert.DeserializeObject<TEntity>(cachedEntity);
     }
 
+    public Task<TEntity?> HFindAsync<TEntity>(string key, string pattern) where TEntity : class
+    {
+        var db = _connection.GetDatabase();
+        var value = db.HashScan(key, pattern).FirstOrDefault();
+        
+        return value.Value.IsNullOrEmpty is false
+            ? Task.FromResult(JsonConvert.DeserializeObject<TEntity>(value.Value!))
+            : Task.FromResult<TEntity?>(null);
+    }
+
     public async Task HSetAsync(string key, string field, string entity, TimeSpan expiry)
     {
         var db = _connection.GetDatabase();
@@ -33,6 +43,17 @@ internal sealed class CacheService : ICacheService
     {
         var db = _connection.GetDatabase();
         await db.HashDeleteAsync(key, field);
+    }
+
+    public async Task HRemoveAllAsync(string key, string pattern)
+    {
+        var db = _connection.GetDatabase();
+        var fields = db.HashScanNoValuesAsync(key, pattern);
+
+        await foreach (var field in fields)
+        {
+            await db.HashDeleteAsync(key, field);
+        }
     }
 
     public async Task<TEntity?> GetOrCreateAsync<TEntity>(

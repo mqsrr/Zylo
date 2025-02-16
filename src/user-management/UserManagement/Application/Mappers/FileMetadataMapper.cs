@@ -1,12 +1,17 @@
-﻿using Riok.Mapperly.Abstractions;
-using UserManagement.Application.Contracts.Responses;
+﻿using UserManagement.Application.Contracts.Responses;
 using UserManagement.Application.Models;
 
 namespace UserManagement.Application.Mappers;
 
-[Mapper]
-internal static partial class FileMetadataMapper
+internal static class FileMetadataMapper
 {
-    [MapProperty([nameof(FileMetadata.AccessUrl), nameof(FileMetadata.AccessUrl.Url)], [nameof(FileMetadataResponse.Url)])]
-    internal static partial FileMetadataResponse ToResponse(this FileMetadata metadata);
+    internal static FileMetadataResponse ToResponse(this FileMetadata metadata)
+    {
+        return new FileMetadataResponse
+        {
+            Url = metadata.AccessUrl.Url,
+            ContentType = metadata.ContentType,
+            FileName = metadata.FileName
+        };
+    }
 }

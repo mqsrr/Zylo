@@ -1,9 +1,6 @@
 ﻿namespace UserManagement.Application.Settings;
 
-public sealed class OtpSettings
+public sealed class OtpSettings() : BaseSettings("Otp")
 {
-    public const string SectionName = "Otp";
-    
-    public required string Characters { get; set; }
-    
+    public required string Characters { get; init; }
 }

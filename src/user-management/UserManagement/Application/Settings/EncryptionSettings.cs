@@ -1,8 +1,6 @@
 ﻿namespace UserManagement.Application.Settings;
 
-public sealed class EncryptionSettings
+public sealed class EncryptionSettings() : BaseSettings("Encryption")
 {
-    public const string SectionName = "Encryption";
-    
     public required string Key { get; init; }
 }

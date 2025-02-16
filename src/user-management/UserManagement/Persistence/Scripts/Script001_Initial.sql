@@ -1,36 +1,52 @@
-﻿CREATE TABLE Identities
+﻿CREATE TABLE identities
 (
-    Id            BYTEA               NOT NULL PRIMARY KEY,
-    Username      VARCHAR(100) UNIQUE NOT NULL,
-    PasswordHash  TEXT                NOT NULL,
-    Email         VARCHAR(255) UNIQUE NOT NULL,
-    EmailVerified BOOLEAN             NOT NULL
+    id                BYTEA               NOT NULL PRIMARY KEY,
+    username          VARCHAR(100) UNIQUE NOT NULL,
+    password_hash     TEXT                NOT NULL,
+    password_salt     TEXT                NOT NULL,
+    email_hash        VARCHAR(255)        NOT NULL,
+    email_salt        TEXT                NOT NULL,
+    email_unique_hash VARCHAR(255) UNIQUE NOT NULL,
+    email_verified    BOOLEAN             NOT NULL
 );
 
-CREATE TABLE Users
+CREATE TABLE users
 (
-    Id                BYTEA        NOT NULL PRIMARY KEY,
-    Name              VARCHAR(100) NOT NULL,
-    Username          VARCHAR(100) NOT NULL,
-    Bio               VARCHAR(500) NULL,
-    Location          VARCHAR(255) NULL,
-    BirthDate         DATE         NOT NULL
+    id        BYTEA               NOT NULL PRIMARY KEY REFERENCES identities (id) ON DELETE CASCADE,
+    name      VARCHAR(100)        NOT NULL,
+    username  VARCHAR(100) UNIQUE NOT NULL,
+    bio       VARCHAR(500)        NULL,
+    location  VARCHAR(255)        NULL,
+    birthdate DATE                NOT NULL
 );
 
 CREATE TABLE RefreshTokens
 (
-    Token          BYTEA       NOT NULL PRIMARY KEY,
-    IdentityId     BYTEA       NOT NULL REFERENCES Identities (Id) ON DELETE CASCADE,
-    ExpirationDate TIMESTAMPTZ NOT NULL,
-    CreatedAt      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    token       BYTEA       NOT NULL PRIMARY KEY,
+    identity_id BYTEA       NOT NULL REFERENCES identities (Id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  TIMESTAMPTZ NOT NULL
 );
 
-CREATE UNIQUE INDEX idx_refresh_tokens_token ON RefreshTokens (Token);
+CREATE TABLE otp
+(
+    id         BYTEA PRIMARY KEY REFERENCES identities (id) ON DELETE CASCADE,
+    code_hash  TEXT        NOT NULL,
+    salt       TEXT        NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL
+);
 
-CREATE INDEX idx_refresh_tokens_userid ON RefreshTokens (IdentityId);
+CREATE UNIQUE INDEX idx_refresh_tokens_token ON RefreshTokens (token);
 
-CREATE UNIQUE INDEX idx_identities_id ON Identities (Id);
+CREATE INDEX idx_refresh_tokens_userid ON RefreshTokens (identity_id);
 
-CREATE UNIQUE INDEX idx_identities_username ON Identities (Username);
+CREATE UNIQUE INDEX idx_identities_id ON Identities (id);
 
-CREATE UNIQUE INDEX idx_users_id ON Users (Id);
+CREATE UNIQUE INDEX idx_identities_username ON Identities (username);
+
+CREATE UNIQUE INDEX idx_users_id ON Users (id);
+
+CREATE INDEX idx_identities_email_salt ON Identities (email_salt);
+
+CREATE INDEX idx_identities_password_salt ON Identities (password_salt);
