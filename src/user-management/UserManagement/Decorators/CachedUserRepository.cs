@@ -29,16 +29,9 @@ internal sealed class CachedUserRepository : IUserRepository
         return _userRepository.GetBatchByIds(ids, cancellationToken);
     }
 
-    public async Task<Result> CreateAsync(User user, IDbConnection connection, IDbTransaction transaction)
+    public Task<Result> CreateAsync(User user, IDbConnection connection, IDbTransaction transaction)
     {
-        var result = await _userRepository.CreateAsync(user, connection, transaction);
-        if (result.IsSuccess is false)
-        {
-            return result;
-        }
-
-        await _cacheService.HRemoveAsync("users", user.Id.ToString());
-        return Result.Success();
+        return _userRepository.CreateAsync(user, connection, transaction);
     }
 
     public async Task<Result> UpdateAsync(User user, CancellationToken cancellationToken)

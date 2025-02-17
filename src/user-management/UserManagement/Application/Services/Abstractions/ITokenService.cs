@@ -14,6 +14,4 @@ public interface ITokenService
     Task<Result<RefreshToken>> CreateRefreshTokenAsync(IdentityId id, CancellationToken cancellationToken);
 
     Task<Result> DeleteRefreshTokenAsync(string refreshToken, CancellationToken cancellationToken);
-
-    Task<Result> DeleteRefreshTokenByIdentityIdAsync(IdentityId id, CancellationToken cancellationToken);
 }

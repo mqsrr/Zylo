@@ -27,7 +27,7 @@ internal sealed class CachedImageService : IImageService
         var file = await _imageService.GetImageAsync(id, category, cancellationToken);
         var expiry = file.AccessUrl.ExpiresIn - DateTime.UtcNow;
         
-        await _cacheService.HSetAsync("iamges", cacheField, JsonConvert.SerializeObject(file), expiry);
+        await _cacheService.HSetAsync("images", cacheField, JsonConvert.SerializeObject(file), expiry);
         return file;
     }
 

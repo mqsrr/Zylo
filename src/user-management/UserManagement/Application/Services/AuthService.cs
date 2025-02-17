@@ -76,13 +76,9 @@ internal sealed class AuthService : IAuthService
             : Task.FromResult(Result.Failure(new BadRequestError("Invalid refresh token")));
     }
 
-    public async Task<Result> DeleteByIdAsync(IdentityId id, CancellationToken cancellationToken)
+    public Task<Result> DeleteByIdAsync(IdentityId id, CancellationToken cancellationToken)
     {
-        var identityDeleteResult = await _identityService.DeleteByIdAsync(id, cancellationToken);
-        return identityDeleteResult.IsSuccess
-            ? await _tokenService.DeleteRefreshTokenByIdentityIdAsync(id, cancellationToken)
-            : identityDeleteResult.Error;
-
+        return _identityService.DeleteByIdAsync(id, cancellationToken);
     }
 
     private async Task<Result<AuthenticationResult>> GetAuthenticationResultAsync(Identity identity, CancellationToken cancellationToken)
@@ -94,9 +90,9 @@ internal sealed class AuthService : IAuthService
         }
 
         var refreshToken = refreshTokenResult.Value!;
-        return refreshTokenResult.IsSuccess is false
-            ? refreshTokenResult.Error
-            : GetAuthenticationResult(identity, refreshToken);
+        return refreshTokenResult.IsSuccess
+            ? GetAuthenticationResult(identity, refreshToken)
+            : refreshTokenResult.Error;
     }
 
     private Result<AuthenticationResult> GetAuthenticationResult(Identity identity, RefreshToken refreshToken)

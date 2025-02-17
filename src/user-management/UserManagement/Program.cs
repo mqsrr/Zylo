@@ -7,6 +7,7 @@ using Serilog;
 using UserManagement.Application.Extensions;
 using UserManagement.Application.Factories;
 using UserManagement.Application.Factories.Abstractions;
+using UserManagement.Application.Helpers;
 using UserManagement.Application.Messaging.Users;
 using UserManagement.Application.Repositories;
 using UserManagement.Application.Repositories.Abstractions;
@@ -16,6 +17,7 @@ using UserManagement.Application.Validators;
 using UserManagement.Decorators;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.ConfigureOpenTelemetry();
 
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
@@ -24,8 +26,8 @@ builder.Configuration.AddEnvFile();
 
 builder.Configuration.AddAzureKeyVault();
 builder.Configuration.AddJwtBearer(builder);
-
 builder.Services.AddControllers();
+
 builder.Services.AddApiVersioning(new HeaderApiVersionReader());
 builder.Services.AddConnectionMultiplexer(builder.Configuration["Redis:ConnectionString"]!);
 
@@ -33,24 +35,30 @@ builder.Services.AddScoped<IDbConnectionFactory, PostgresDbConnectionFactory>();
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.Decorate<IUserRepository, ExceptionlessUserRepository>();
+builder.Services.Decorate<IUserRepository>((repository, provider) => new ObservableUserRepository(repository, provider.GetRequiredService<Instrumentation>()));
 builder.Services.Decorate<IUserRepository>((repository, provider) => new CachedUserRepository(repository, provider.GetRequiredService<ICacheService>()));
 
 builder.Services.AddScoped<IIdentityRepository, IdentityRepository>();
 builder.Services.Decorate<IIdentityRepository, ExceptionlessIdentityRepository>();
+builder.Services.Decorate<IIdentityRepository>((repository, provider) => new ObservableIdentityRepository(repository, provider.GetRequiredService<Instrumentation>()));
 
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.Decorate<IRefreshTokenRepository, ExceptionlessRefreshTokenRepository>();
+builder.Services.Decorate<IRefreshTokenRepository>((repository, provider) => new ObservableRefreshTokenRepository(repository, provider.GetRequiredService<Instrumentation>()));
 
 builder.Services.AddScoped<IOtpRepository, OtpRepository>();
 builder.Services.Decorate<IOtpRepository, ExceptionlessOtpRepository>();
+builder.Services.Decorate<IOtpRepository>((repository, provider) => new ObservableOtpRepository(repository, provider.GetRequiredService<Instrumentation>()));
 
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IIdentityService, IdentityService>();
 
 builder.Services.AddScoped<ICacheService, CacheService>();
+builder.Services.Decorate<ICacheService, ObservableCacheService>();
 
 builder.Services.AddScoped<IImageService, ImageService>();
 builder.Services.Decorate<IImageService, CachedImageService>();
+builder.Services.Decorate<IImageService>((repository, provider) => new ObservableImageService(repository, provider.GetRequiredService<Instrumentation>()));
 
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();

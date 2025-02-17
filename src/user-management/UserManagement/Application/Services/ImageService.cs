@@ -87,7 +87,7 @@ internal sealed class ImageService : IImageService
         };
 
         var response = await _s3Client.DeleteObjectsAsync(request, cancellationToken);
-        return response.HttpStatusCode == HttpStatusCode.NoContent;
+        return response.HttpStatusCode == HttpStatusCode.OK;
     }
 
     private static string GetImageKey(UserId id, ImageCategory category)

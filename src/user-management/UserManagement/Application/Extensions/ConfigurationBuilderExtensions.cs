@@ -111,24 +111,6 @@ internal static class ConfigurationBuilderExtensions
                         }
 
                         await Task.CompletedTask;
-                    },
-                    OnChallenge = async context =>
-                    {
-                        if (!context.Response.HasStarted)
-                        {
-                            context.Response.ContentType = "application/json";
-                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-
-                            string errorMessage = context.AuthenticateFailure?.Message switch
-                            {
-                                "Email not verified." => "Email has not been verified. Please verify your email to continue.",
-                                _ => "Invalid token."
-                            };
-
-                            await context.Response.WriteAsync($"{{\"error\": \"{errorMessage}\"}}");
-                        }
-
-                        context.HandleResponse();
                     }
                 };
             });

@@ -1,11 +1,16 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using Asp.Versioning;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using StackExchange.Redis;
 using UserManagement.Application.Builders;
 using UserManagement.Application.Factories;
 using UserManagement.Application.Factories.Abstractions;
+using UserManagement.Application.Helpers;
+using UserManagement.Application.Services;
 using UserManagement.Application.Services.Abstractions;
 using UserManagement.Application.Settings;
 using UserManagement.HostedServices;
@@ -14,6 +19,35 @@ namespace UserManagement.Application.Extensions;
 
 internal static class ServiceCollectionExtensions
 {
+    public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder)
+    {
+        builder.Services.AddOpenTelemetry()
+            .ConfigureResource(resourceBuilder => resourceBuilder.AddTelemetrySdk().AddService(serviceName: "user-management", serviceVersion: "1.0.0"))
+            .WithMetrics(providerBuilder =>
+            {
+                providerBuilder.AddRuntimeInstrumentation()
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddMeter("Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Net.Http", Instrumentation.MeterName)
+                    .AddView("request-duration",
+                        new ExplicitBucketHistogramConfiguration
+                        {
+                            Boundaries = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+                        })
+                    .AddOtlpExporter();
+            })
+            .WithTracing(providerBuilder =>
+            {
+                providerBuilder.AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddAWSInstrumentation()
+                    .AddOtlpExporter();
+            });
+
+        builder.Services.AddSingleton<Instrumentation>();
+        return builder;
+    }
+
     public static IServiceCollection AddOptionsSettingsWithValidation<TOptions>(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -38,7 +72,7 @@ internal static class ServiceCollectionExtensions
         var allSettings = Assembly.GetAssembly(baseSettingsType)!
             .ExportedTypes
             .Where(t => t is { IsInterface: false, IsAbstract: false } && t.BaseType == baseSettingsType);
-        
+
         foreach (var settings in allSettings)
         {
             var method = typeof(ServiceCollectionExtensions)

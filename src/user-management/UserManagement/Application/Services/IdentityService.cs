@@ -63,10 +63,10 @@ public sealed class IdentityService : IIdentityService
         }
 
         var identity = identityResult.Value!;
-        bool passwordMatch = _hashService.VerifyHash(password, identity.PasswordHash, identity.PasswordSalt);
-        return passwordMatch is false
-            ? new BadRequestError("Invalid username or password")
-            : identity;
+        bool isPasswordMatch = _hashService.VerifyHash(password, identity.PasswordHash, identity.PasswordSalt);
+        return isPasswordMatch
+            ? identity
+            : new BadRequestError("Invalid username or password");
     }
 
 
@@ -98,8 +98,8 @@ public sealed class IdentityService : IIdentityService
         }
 
         var imageDeleteResult = await _userService.DeleteImagesAsync(UserId.Parse(id), cancellationToken);
-        return imageDeleteResult.IsSuccess is false
-            ? Result.Failure()
-            : Result.Success();
+        return imageDeleteResult.IsSuccess
+            ? Result.Success()
+            : Result.Failure();
     }
 }
