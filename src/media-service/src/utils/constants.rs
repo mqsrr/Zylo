@@ -1,3 +1,4 @@
+pub const OTEL_SERVICE_NAME: &str = "media-service";
 pub const MONGO_URL_SECRET: &str = "Media-MongoDb--ConnectionString";
 pub const REDIS_URL_SECRET: &str = "Media-Redis--ConnectionString";
 
@@ -5,7 +6,8 @@ pub const REDIS_EXPIRE: &str = "Zylo-Redis--Expire";
 pub const RABBITMQ_URL_SECRET: &str = "Zylo-RabbitMq--ConnectionString";
 
 pub const EXPOSED_PORT: &str = "Media-API--ExposedPort";
-pub const GRPC_SERVER_ADDR: &str = "MediaService-gRPC--ServerAddr";
+pub const GRPC_SERVER_ADDR: &str = "Media-gRPC--ServerAddr";
+pub const OTEL_COLLECTOR_ADDR: &str = "Zylo-OTEL--CollectorAddress";
 
 pub const S3_BUCKET_NAME: &str = "Zylo-S3--BucketName";
 pub const S3_BUCKET_PRESIGNED_URL_EXPIRE_TIME: &str = "Zylo-S3--PresignedUrlExpire";

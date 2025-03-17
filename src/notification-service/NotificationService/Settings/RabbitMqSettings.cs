@@ -1,8 +1,6 @@
 ﻿namespace NotificationService.Settings;
 
-public sealed class RabbitMqSettings
+public sealed class RabbitMqSettings() : BaseSettings("RabbitMq")
 {
-    public const string SectionName = "RabbitMq";
-    
     public required string ConnectionString { get; init; }
 }

@@ -28,7 +28,7 @@ func (s *Server) handlePostLikedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.LikePost(context.Background(), message.UserID, message.ID)
+	return s.interactionRepository.LikePost(context.Background(), message.UserID, message.ID)
 }
 
 func (s *Server) handlePostViewedMessage(delivery amqp.Delivery) error {
@@ -37,7 +37,8 @@ func (s *Server) handlePostViewedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.ViewPost(context.Background(), message.UserID, message.ID)
+	return s.interactionRepository.ViewPost(context.Background(), message.UserID, message.ID)
+
 }
 
 func (s *Server) handlePostUnlikedMessage(delivery amqp.Delivery) error {
@@ -46,5 +47,5 @@ func (s *Server) handlePostUnlikedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.UnlikePost(context.Background(), message.UserID, message.ID)
+	return s.interactionRepository.UnlikePost(context.Background(), message.UserID, message.ID)
 }

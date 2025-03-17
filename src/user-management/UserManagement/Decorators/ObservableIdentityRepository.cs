@@ -13,16 +13,20 @@ public sealed class ObservableIdentityRepository : IIdentityRepository
     private readonly IIdentityRepository _identityRepository;
     private readonly Counter<long> _requestCount;
     private readonly Histogram<double> _requestDuration;
+    private readonly Instrumentation _instrumentation;
     private readonly Dictionary<string, object?> _tags;
 
 
     public ObservableIdentityRepository(IIdentityRepository identityRepository, Instrumentation instrumentation)
     {
         _identityRepository = identityRepository;
+        _instrumentation = instrumentation;
         _activitySource = instrumentation.ActivitySource;
         
-        _requestCount = instrumentation.GetCounterOrCreate("identity_repository_request_count", "Number of Identity Repository requests");
-        _requestDuration = instrumentation.GetHistogramOrCreate("identity_repository_request_duration", "Duration of Identity Repository requests");
+        _requestCount = instrumentation.GetCounterOrCreate("db_queries_total", "Total number of database queries");
+        _requestDuration = instrumentation.GetHistogramOrCreate("db_query_duration_seconds", "Query execution duration");
+
+        instrumentation.RegisterGauge("db_connections", "Active database connections");
 
         _tags = new Dictionary<string, object?>
         {
@@ -102,13 +106,11 @@ public sealed class ObservableIdentityRepository : IIdentityRepository
             ActivityKind.Client,
             Activity.Current?.Id,
             _tags);
- 
-        _requestCount.Add(1, new TagList
-        {
-            { "operation", operation },
-            { "method", methodName }
-        });
-        
+
+
+        string status = "success";
+        _instrumentation.IncrementGauge("db_connections", 1);
+
         var sw = Stopwatch.StartNew();
         try
         {
@@ -123,16 +125,25 @@ public sealed class ObservableIdentityRepository : IIdentityRepository
             activity?.SetStatus(ActivityStatusCode.Error, e.Message);
             activity?.SetTag("error.message", e.Message);
             activity?.SetTag("error.type", "database_error");
+            status = "error";
             
-            return null!;
+            throw;
         }
         finally
         {
-            _requestDuration.Record(sw.ElapsedMilliseconds, new TagList
+            _instrumentation.IncrementGauge("db_connections", -1);
+            var tagList = new TagList
             {
+                { "service", Instrumentation.ActivitySourceName},
                 { "operation", operation },
                 { "method", methodName },
-            });
+                { "table", target },
+                { "db", "postgres" },
+                { "status", status },
+            };
+            
+            _requestCount.Add(1, tagList);
+            _requestDuration.Record(sw.Elapsed.Seconds, tagList);
         }
     }
 }

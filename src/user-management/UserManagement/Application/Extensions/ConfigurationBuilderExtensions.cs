@@ -52,7 +52,8 @@ internal static class ConfigurationBuilderExtensions
     public static IConfigurationBuilder AddAzureKeyVault(this IConfigurationBuilder configuration)
     {
         configuration.AddEnvironmentVariables();
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Test")))
+        string? environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"); 
+        if (environment == Environments.Development)
         {
             return configuration;
         }

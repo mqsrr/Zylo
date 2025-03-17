@@ -24,9 +24,9 @@ internal sealed class CachedUserRepository : IUserRepository
             TimeSpan.FromHours(1))!;
     }
 
-    public Task<Result<IEnumerable<User>>> GetBatchByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
+    public Task<Result<IEnumerable<UserSummary>>> GetBatchUsersSummaryByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
     {
-        return _userRepository.GetBatchByIds(ids, cancellationToken);
+        return _userRepository.GetBatchUsersSummaryByIds(ids, cancellationToken);
     }
 
     public Task<Result> CreateAsync(User user, IDbConnection connection, IDbTransaction transaction)
@@ -43,6 +43,7 @@ internal sealed class CachedUserRepository : IUserRepository
         }
 
         await _cacheService.HRemoveAsync("users", user.Id.ToString());
+        await _cacheService.HRemoveAsync("users-summary", user.Id.ToString());
         return Result.Success();
     }
 }

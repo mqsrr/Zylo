@@ -1,4 +1,20 @@
 services:
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    devices: 
+      - "/dev/kmsg"
+    ports:
+      - "8000:8080"
+    volumes:
+      - "/:/rootfs:ro"
+      - "/var/run:/var/run:ro"
+      - "/sys:/sys:ro"
+      - "/var/lib/docker/:/var/lib/docker:ro"
+      - "/dev/disk/:/dev/disk:ro"
+      - "/cgroup:/cgroup:ro"
+
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -90,11 +106,6 @@ services:
       POSTGRES_PASSWORD: Pass1234!
       POSTGRES_DB: testDb
 
-  user-interaction-backup-redis:
-    image: redis
-    ports:
-      - "6378:6379"
-
   social-graph-neo4j:
     image: neo4j:5.23
     ports:
@@ -112,27 +123,34 @@ services:
       - NEO4J_AUTH=${FEED_NEO4J_AUTH}
 
   user-management:
-    image: mqsr/zylo-user-management:1.0.0
+    image: mqsr/zylo-user-management:2.0.0
     depends_on:
       - user-management-postgres
       - rabbitMq
       - redis
+      - jaeger
+      - otel-collector
     ports:
       - '8080:8080'
-      - '8070:8070'
+      - '50051:50051'
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
     env_file:
       - .env
 
   media-service:
-    image: mqsr/zylo-media-service:1.0.0
+    image: mqsr/zylo-media-service:2.0.0
     depends_on:
       - media-service-mongo
       - rabbitMq
       - redis
+      - otel-collector
+      - jaeger
     ports:
       - '8082:8080'
+      - '50052:50051'
+    environment:
+      "APP_ENV": "production"
     env_file:
       - .env
 
@@ -140,41 +158,59 @@ services:
     image: mqsr/zylo-user-interaction:2.0.0
     depends_on:
       - user-interaction-postgres
-      - user-interaction-backup-redis
+      - otel-collector
       - rabbitMq
       - redis
+      - jaeger
     ports:
       - '8083:8080'
+      - '50053:50051'
     environment:
       "APP_ENV": "production"
     env_file:
       - .env
 
   social-graph:
-    image: mqsr/zylo-social-graph:1.0.0
+    image: mqsr/zylo-social-graph:2.0.0
     depends_on:
       - social-graph-neo4j
       - rabbitMq
       - redis
+      - otel-collector
+      - jaeger
     ports:
       - '8081:8080'
+      - '50054:50051'
     environment:
-      LISTENING_ADDRESS: :8080
       ENVIRONMENT: Production
     env_file:
       - .env
 
   feed-service:
-    image: mqsr/zylo-feed-service:1.0.0
+    image: mqsr/zylo-feed-service:2.0.0
     depends_on:
       - feed-service-neo4j
       - rabbitMq
       - redis
     ports:
-      - '8091:8080'
+      - '50055:50051'
     environment:
-      LISTENING_ADDRESS: :8080
       ENVIRONMENT: Production
+    env_file:
+      - .env  
+      
+  aggregator-service:
+    image: mqsr/zylo-aggregator-service:1.0.0
+    depends_on:
+      - user-management
+      - user-interaction
+      - social-graph
+      - feed-service
+      - media-service
+    ports:
+      - '8085:8080'
+    environment:
+      APP_ENV: Production
     env_file:
       - .env
 
@@ -190,18 +226,10 @@ services:
     env_file:
       - .env
 
-  api-gateway:
-    image: mqsr/zylo-api-gateway:1.0.0
-#    depends_on:
-#      - user-management
-#      - user-interaction
-#      - social-graph
-#      - feed-service
-#      - media-service
-#      - notification-service
+  envoy:
+    image: envoyproxy/envoy:distroless-v1.33-latest
     ports:
-      - '8090:8080'
-    environment:
-      ASPNETCORE_ENVIRONMENT: "Staging"
-    env_file:
-      - .env
+      - "10000:10000"
+      - "9901:9901"
+    volumes:
+      - ./envoy-override.yaml:/etc/envoy/envoy.yaml

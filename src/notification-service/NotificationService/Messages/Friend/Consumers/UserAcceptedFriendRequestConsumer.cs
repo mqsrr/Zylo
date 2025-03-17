@@ -9,7 +9,7 @@ using RabbitMQ.Client.Events;
 
 namespace NotificationService.Messages.Friend.Consumers;
 
-internal sealed class UserAcceptedFriendRequestConsumer : IConsumer
+internal sealed class UserAcceptedFriendRequestConsumer : IConsumer<UserAcceptedFriendRequest>
 {
     private readonly IRabbitMqConnectionFactory _connectionFactory;
     private readonly IHubContext<NotificationHub, INotificationHub> _hubContext;
@@ -21,7 +21,7 @@ internal sealed class UserAcceptedFriendRequestConsumer : IConsumer
         _hubContext = hubContext;
     }
 
-    public async Task ConsumeAsync(CancellationToken cancellationToken)
+    public async Task ConsumeAsync(UserAcceptedFriendRequest message, CancellationToken cancellationToken)
     {
         var connection = await _connectionFactory.GetConnectionAsync(cancellationToken);
         _channel = await  connection.CreateChannelAsync(null, cancellationToken);

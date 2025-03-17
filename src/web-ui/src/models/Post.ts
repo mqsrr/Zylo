@@ -3,7 +3,7 @@ import {Reply} from "@/models/Reply.ts";
 
 export interface Post {
     id: string;
-    text: string;
+    content: string;
     likes: number;
     views: number;
     user: UserPost;
@@ -18,8 +18,5 @@ export interface UserPost {
     id: string;
     profileImage: FileMetadata;
     name: string;
-    username: string;
-    bio: string;
-    location: string;
 }
 

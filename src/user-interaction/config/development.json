@@ -22,5 +22,8 @@
   },
   "grpc_server": {
     "port": 50051
+  },
+  "otel_collector":{
+    "address": "http://localhost:4317"
   }
 }

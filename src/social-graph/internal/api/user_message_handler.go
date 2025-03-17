@@ -31,9 +31,10 @@ func (s *Server) handleUserCreatedMessage(delivery amqp.Delivery) {
 			Str("user_id", userMsg.ID.String()).
 			Str("queue", "user-created-social-graph-queue").
 			Str("exchange", "user-exchange").
-			Err(err).Msg("")
+			Err(err).
+			Msg("")
 
-		if err = delivery.Nack(false, true); err != nil {
+		if err = delivery.Nack(false, false); err != nil {
 			log.Error().Err(err).Msg("")
 		}
 
@@ -68,7 +69,7 @@ func (s *Server) handleUserDeletedMessage(delivery amqp.Delivery) {
 			Str("exchange", "user-exchange").
 			Err(err).Msg("")
 
-		if err = delivery.Nack(false, true); err != nil {
+		if err = delivery.Nack(false, false); err != nil {
 			log.Error().Err(err).Msg("")
 		}
 

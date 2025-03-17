@@ -1,85 +1,162 @@
-﻿using System.Text;
-using Azure.Identity;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
+﻿using System.Collections.Concurrent;
+using System.Reflection;
+using Asp.Versioning;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
+using NotificationService.Builders;
+using NotificationService.Factories;
+using NotificationService.Factories.Abstractions;
+using NotificationService.Helpers;
+using NotificationService.HostedServices;
 using NotificationService.Services;
+using NotificationService.Services.Abstractions;
+using NotificationService.Settings;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using RabbitMQ.Client;
+using StackExchange.Redis;
 
 namespace NotificationService.Extensions;
 
 internal static class ServiceCollectionExtensions
-{
-    public static IServiceCollection AddApplicationService<TInterface>(
-        this IServiceCollection services,
-        ServiceLifetime serviceLifetime = ServiceLifetime.Scoped)
+{ 
+    public static WebApplicationBuilder ConfigureOpenTelemetry(this WebApplicationBuilder builder, string collectorAddress)
     {
-        services.Scan(scan => scan
-            .FromAssemblyOf<TInterface>()
-            .AddClasses(classes => classes.AssignableTo<TInterface>())
-            .AsImplementedInterfaces()
-            .WithLifetime(serviceLifetime));
+
+        builder.Logging.AddOpenTelemetry(options => options.AddOtlpExporter(exporterOptions => exporterOptions.Endpoint = new Uri(collectorAddress)));
+        
+        builder.Services.AddOpenTelemetry()
+            .ConfigureResource(resourceBuilder => resourceBuilder.AddTelemetrySdk().AddService(serviceName: "notification-service", serviceVersion: "1.0.0"))
+            .WithMetrics(providerBuilder =>
+            {
+                providerBuilder.AddRuntimeInstrumentation()
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddMeter("Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Net.Http", Instrumentation.MeterName)
+                    .AddView("notification_service_api_request_duration",
+                        new ExplicitBucketHistogramConfiguration
+                        {
+                            Boundaries = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+                        })
+                    .AddOtlpExporter(options => options.Endpoint = new Uri(collectorAddress));
+            })
+            .WithTracing(providerBuilder =>
+            {
+                providerBuilder.AddAspNetCoreInstrumentation(options =>
+                    {
+                        options.EnrichWithHttpResponse = (activity, httpRequest) => activity.SetTag("http.request.id", httpRequest.HttpContext.TraceIdentifier);
+                    })
+                    .AddHttpClientInstrumentation()
+                    .AddAWSInstrumentation()
+                    .AddOtlpExporter(options => options.Endpoint = new Uri(collectorAddress));
+            });
+
+        builder.Services.AddSingleton<Instrumentation>();
+        return builder;
+    }
+
+    public static IServiceCollection ConfigureJsonSerializer(this IServiceCollection services)
+    {
+        JsonConvert.DefaultSettings = () => new JsonSerializerSettings
+        {
+            Formatting = Formatting.Indented,
+            TypeNameHandling = TypeNameHandling.None,
+            ContractResolver = new CamelCasePropertyNamesContractResolver()
+        };
 
         return services;
     }
 
-    public static IConfigurationBuilder AddJwtBearer(this IConfigurationBuilder config, WebApplicationBuilder builder)
+    public static IServiceCollection AddOptionsSettingsWithValidation<TOptions>(
+        this IServiceCollection services,
+        IConfiguration configuration)
+        where TOptions : BaseSettings
     {
-        builder.Services.AddAuthorization(options =>
-            {
-                options.AddPolicy("Bearer", policyBuilder =>
-                {
-                    policyBuilder.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
-                    policyBuilder.RequireAuthenticatedUser();
-                });
-            })
-            .AddAuthentication(options =>
-            {
-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-            })
-            .AddJwtBearer("Bearer", options =>
-            {
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-
-                    ValidAudience = builder.Configuration["Jwt:Audience"],
-                    ValidIssuer = builder.Configuration["Jwt:Issuer"],
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!)),
-                    ClockSkew = TimeSpan.FromSeconds(5)
-                };
-                options.Events = new JwtBearerEvents
-                {
-                    OnMessageReceived = context =>
-                    {
-                        var accessToken = context.Request.Query["access_token"];
-
-                        var path = context.HttpContext.Request.Path;
-                        if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/notifications"))
-                        {
-                            context.Token = accessToken;
-                        }
-                        return Task.CompletedTask;
-                    }
-                };
-            });
-
-        return builder.Configuration;
-    }
-
-    public static IConfigurationBuilder AddAzureKeyVault(this IConfigurationBuilder configuration)
-    {
-        if (!Environment.GetEnvironmentVariable(Environments.Staging).IsNullOrEmpty())
+        if (Activator.CreateInstance<TOptions>() is not BaseSettings instance)
         {
-            return configuration;
+            throw new InvalidOperationException($"Could not create instance of {typeof(TOptions).Name}");
         }
 
-        return configuration.AddEnvironmentVariables()
-            .AddAzureKeyVault(new Uri(Environment.GetEnvironmentVariable("AZURE_KEY_VAULT_URL")!),
-                new DefaultAzureCredential(),
-                new PrefixKeyVaultSecretManager(["Zylo", "NotificationService"]));
+        return services
+            .AddOptionsWithValidateOnStart<TOptions>()
+            .Bind(configuration.GetRequiredSection(instance.SectionName))
+            .Services;
+    }
+
+    public static IServiceCollection AddApplicationSettings(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var baseSettingsType = typeof(BaseSettings);
+        var allSettings = Assembly.GetAssembly(baseSettingsType)!
+            .ExportedTypes
+            .Where(t => t is { IsInterface: false, IsAbstract: false } && t.BaseType == baseSettingsType);
+
+        foreach (var settings in allSettings)
+        {
+            var method = typeof(ServiceCollectionExtensions)
+                .GetMethod(nameof(AddOptionsSettingsWithValidation))!
+                .MakeGenericMethod(settings);
+
+            method.Invoke(null, [services, configuration]);
+        }
+
+        return services;
+    }
+
+    public static IHealthChecksBuilder AddServiceHealthChecks(this IServiceCollection services, WebApplicationBuilder builder)
+    {
+        return services.AddHealthChecks()
+            .AddRedis(builder.Configuration["Redis:ConnectionString"]!, name: "Redis", tags: ["Redis"])
+            .AddNpgSql(builder.Configuration["Postgres:ConnectionString"]!, name: "Postgres", tags: ["Database"]);
+    }
+
+    public static IApiVersioningBuilder AddApiVersioning(this IServiceCollection services, IApiVersionReader reader, bool assumeDefaultVersion = true)
+    {
+        return services.AddApiVersioning(x =>
+            {
+                x.ApiVersionReader = reader;
+                x.DefaultApiVersion = new ApiVersion(1.0);
+                x.ReportApiVersions = true;
+                x.AssumeDefaultVersionWhenUnspecified = assumeDefaultVersion;
+            })
+            .AddMvc();
+    }
+
+    public static IServiceCollection AddConnectionMultiplexer(this IServiceCollection services, string connectionString)
+    {
+        var connection = ConnectionMultiplexer.Connect(connectionString);
+        var response = connection.GetDatabase().Execute("PING");
+        if (response.IsNull)
+        {
+            throw new Exception("Redis connection failed");
+        }
+
+        services.AddSingleton<IConnectionMultiplexer>(connection);
+        return services;
+    }
+
+    public static IServiceCollection AddRabbitMqBus(
+        this IServiceCollection services,
+        Action<RabbitMqBuilder> configure)
+    {
+        services.AddSingleton<ConcurrentDictionary<Type, IChannel>>();
+        services.AddSingleton<IRabbitMqConnectionFactory, RabbitMqConnectionFactory>();
+        services.AddSingleton<IRabbitMqBus, RabbitMqBus>();
+
+        services.AddOptions<RabbitMqBusSettings>()
+            .Configure<IServiceProvider>((settings, _) =>
+            {
+                var builder = new RabbitMqBuilder();
+                configure(builder);
+                settings.Publishers = builder.Build();
+            });
+
+        services.AddScoped(typeof(IConsumer<>), typeof(RabbitMqConsumer<>));
+        services.AddHostedService<RabbitMqBusHostedService>();
+
+        return services;
     }
 }

@@ -1,0 +1,21 @@
+{
+  "environment": "development",
+  "server": {
+    "port": 8085
+  },
+  "auth": {
+    "secret": "dev_secret",
+    "issuer": "dev_issuer",
+    "audience": "dev_audience"
+  },
+  "external_grpc_servers": {
+    "user_management": "http://localhost:50051",
+    "media_service": "http://localhost:50052",
+    "user_interactions_service": "http://localhost:50053",
+    "social_graph": "http://localhost:50054",
+    "feed_service": "http://localhost:50055"
+  },
+  "otel_collector": {
+    "address": "http://localhost:4317"
+  }
+}

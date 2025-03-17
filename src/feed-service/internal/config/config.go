@@ -1,59 +1,60 @@
 package config
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"os"
-	"strconv"
+	"strings"
 	"time"
 )
 
-type PublicConfig struct {
-	ListeningAddress string
-	Environment      string
+type Server struct {
+	Environment string `json:"environment"`
+	Port        string `json:"port"`
+	ServiceName string `json:"serviceName"`
 }
 
 type Config struct {
-	*PublicConfig
-	DB    *Neo4jConfig
-	Redis *RedisConfig
-	Jwt   *JwtConfig
-	Amqp  *RabbitmqConfig
-	S3    *S3Config
+	*Server       `json:"server"`
+	DB            *Neo4j         `json:"db"`
+	Redis         *Redis         `json:"redis"`
+	Amqp          *Rabbitmq      `json:"amqp"`
+	GrpcServer    *GrpcServer    `json:"grpcServer"`
+	OtelCollector *OtelCollector `json:"otelCollector"`
 }
 
-type RabbitmqConfig struct {
-	AmqpURI  string
-	ConnTag  string
-	ConnName string
+type Rabbitmq struct {
+	AmqpURI  string `json:"amqpURI"`
+	ConnTag  string `json:"connTag"`
+	ConnName string `json:"connName"`
 }
 
-type JwtConfig struct {
-	Secret   string
-	Issuer   string
-	Audience string
+type Redis struct {
+	ConnectionString string        `json:"connectionString"`
+	Expire           time.Duration `json:"expire"`
 }
 
-type RedisConfig struct {
-	ConnectionString string
-	Expire           time.Duration
+type Neo4j struct {
+	Uri      string `json:"uri"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
-type Neo4jConfig struct {
-	Uri      string
-	Username string
-	Password string
+type GrpcServer struct {
+	Port string `json:"port"`
 }
 
-type S3Config struct {
-	BucketName         string
-	PresignedUrlExpire int
+type OtelCollector struct {
+	Address string `json:"address"`
 }
 
-var DefaultConfig *PublicConfig
+var DefaultConfig *Server
 
 func initKeyVaultClient() (*azsecrets.Client, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
@@ -76,7 +77,7 @@ func getSecretValue(key string, client *azsecrets.Client) string {
 
 	secretResp, err := client.GetSecret(ctx, key, "", nil)
 	if err == nil && secretResp.Value != nil {
-		log.Info().Msg(fmt.Sprintf("Secret %s retrieved from Azure Key Vault", key))
+		log.Debug().Msg(fmt.Sprintf("Secret %s retrieved from Azure Key Vault", key))
 		return *secretResp.Value
 	}
 
@@ -88,65 +89,122 @@ func getSecretValue(key string, client *azsecrets.Client) string {
 
 func getEnvValue(key string, fallback string) string {
 	value := os.Getenv(key)
-	if value == "" && fallback == "" {
-		log.Fatal().
-			Msg(fmt.Sprintf("$%q must be set", key))
+	if value == "" {
+		if fallback == "" {
+			log.Fatal().
+				Msg(fmt.Sprintf("$%q must be set", key))
 
-		os.Exit(1)
+			os.Exit(1)
+		}
+
+		return fallback
 	}
 
 	return value
 }
-func Load() *Config {
-	client, err := initKeyVaultClient()
+
+func loadConfigFromFile(filePath string) (*Config, error) {
+	f, err := os.Open(filePath)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			log.Error().
+				Timestamp().
+				Caller().
+				Str("filePath", filePath).
+				Err(err).
+				Msg("Failed to close file")
+		}
+	}(f)
+
+	var config Config
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(&config); err != nil {
+		return nil, err
 	}
 
-	amqpConfig := &RabbitmqConfig{
+	DefaultConfig = config.Server
+	config.Redis.Expire = config.Redis.Expire * time.Minute
+	return &config, nil
+}
+
+func loadConfigFromSecretStore() (*Config, error) {
+	client, err := initKeyVaultClient()
+	if err != nil {
+		return nil, err
+	}
+
+	amqpConfig := &Rabbitmq{
 		AmqpURI:  getSecretValue("FeedService-RabbitMq--ConnectionString", client),
 		ConnName: "feed-service",
 	}
 
-	jwtConfig := &JwtConfig{
-		Secret:   getSecretValue("Zylo-Jwt--Secret", client),
-		Issuer:   getSecretValue("Zylo-Jwt--Issuer", client),
-		Audience: getSecretValue("Zylo-Jwt--Audience", client),
-	}
-
-	redisConfig := &RedisConfig{
+	redisConfig := &Redis{
 		ConnectionString: getSecretValue("FeedService-Redis--ConnectionString", client),
 		Expire:           10 * time.Minute,
 	}
 
-	dbConfig := &Neo4jConfig{
+	dbConfig := &Neo4j{
 		Uri:      getSecretValue("FeedService-Neo4j--Uri", client),
 		Username: getSecretValue("FeedService-Neo4j--Username", client),
 		Password: getSecretValue("FeedService-Neo4j--Password", client),
 	}
 
-	value, err := strconv.Atoi(getSecretValue("Zylo-S3--PresignedUrlExpire", client))
-	if err != nil {
-		return nil
+	grpcServer := &GrpcServer{
+		Port: getSecretValue("FeedService-GrpcServer--Port", client),
 	}
 
-	s3Config := &S3Config{
-		BucketName:         getSecretValue("Zylo-S3--BucketName", client),
-		PresignedUrlExpire: value,
+	otelAddress := getSecretValue("Zylo-OTEL--CollectorAddress", client)
+	otelCollector := &OtelCollector{
+		Address: strings.TrimPrefix(otelAddress, "http://"),
 	}
 
-	DefaultConfig = &PublicConfig{
-		ListeningAddress: getEnvValue("LISTENING_ADDRESS", ":8092"),
-		Environment:      getEnvValue("ENVIRONMENT", "Development"),
+	DefaultConfig = &Server{
+		Environment: getEnvValue("ENVIRONMENT", "Development"),
+		Port:        grpcServer.Port,
+		ServiceName: "feed-service",
 	}
 
 	config := &Config{
-		PublicConfig: DefaultConfig,
-		DB:           dbConfig,
-		Redis:        redisConfig,
-		Jwt:          jwtConfig,
-		Amqp:         amqpConfig,
-		S3:           s3Config,
+		Server:        DefaultConfig,
+		DB:            dbConfig,
+		Redis:         redisConfig,
+		Amqp:          amqpConfig,
+		GrpcServer:    grpcServer,
+		OtelCollector: otelCollector,
 	}
-	return config
+	return config, nil
+}
+
+func Load() (*Config, error) {
+	if env := getEnvValue("ENVIRONMENT", "Development"); env != "Production" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+		return loadConfigFromFile("config/dev.json")
+	}
+
+	return loadConfigFromSecretStore()
+}
+
+func GetContainerID() (string, error) {
+	file, err := os.Open("/proc/self/cgroup")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, "/")
+		if len(parts) > 2 {
+			id := parts[len(parts)-1]
+			if len(id) >= 12 {
+				return id, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("container ID not found")
 }

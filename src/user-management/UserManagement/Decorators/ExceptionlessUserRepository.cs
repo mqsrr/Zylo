@@ -32,16 +32,16 @@ internal sealed class ExceptionlessUserRepository : IUserRepository
             return new UnexpectedError(e);
         }
     }
-
-    public async Task<Result<IEnumerable<User>>> GetBatchByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
+    
+    public async Task<Result<IEnumerable<UserSummary>>> GetBatchUsersSummaryByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
     {
         try
         {
-            return await _userRepository.GetBatchByIds(ids, cancellationToken); 
+            return await _userRepository.GetBatchUsersSummaryByIds(ids, cancellationToken); 
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Unexpected error occured while getting batch of users data: {}", ids);
+            _logger.LogError(e, "Unexpected error occured while getting batch of users summary data: {}", ids);
             return new UnexpectedError(e);
         }
     }

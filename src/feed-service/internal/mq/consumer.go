@@ -35,7 +35,7 @@ func (c *AmqConsumer) Shutdown() error {
 	return nil
 }
 
-func NewConsumer(cfg *config.RabbitmqConfig) (Consumer, error) {
+func NewConsumer(cfg *config.Rabbitmq) (Consumer, error) {
 	var err error
 	c := &AmqConsumer{
 		tag:  "",

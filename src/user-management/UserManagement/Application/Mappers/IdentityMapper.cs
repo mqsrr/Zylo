@@ -40,6 +40,7 @@ internal static class IdentityMapper
       return new AuthenticationResultResponse
       {
          Id = result.Id.Value.ToString(),
+         EmailVerified = result.EmailVerified,
          AccessToken = result.AccessToken,
       };
    }

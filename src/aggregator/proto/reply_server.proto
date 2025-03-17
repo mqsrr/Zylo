@@ -1,0 +1,50 @@
+﻿syntax = "proto3";
+
+package reply_server;
+
+message ReplyResponse {
+  string id = 1;
+  string content = 2;
+  string user_id = 3;
+  string reply_to_id = 4;
+  int64 created_at = 5;
+  repeated ReplyResponse nested_replies = 6;
+  uint64 likes = 7;
+  uint64 views = 8;
+  bool user_interacted = 9;
+}
+
+message GetReplyByIdRequest {
+  string id = 1;
+  string interaction_user_id = 2; 
+}
+
+message PostInteractionsResponse{
+  string post_id = 1;
+  repeated ReplyResponse replies = 2;
+  uint64 likes = 3;
+  uint64 views = 4;
+  bool user_interacted = 5;
+}
+
+message GetPostInteractionsRequest{
+  string post_id = 1;
+  string interaction_user_id = 2; 
+}
+
+message GetBatchOfPostInteractionsRequest {
+  repeated string posts_ids = 1;
+  string interaction_user_id = 2;
+}
+
+message BatchOfPostInteractionsResponse {
+  repeated PostInteractionsResponse posts_interactions = 1;
+}
+
+service ReplyService {
+  rpc GetReplyById(GetReplyByIdRequest) returns (ReplyResponse);
+  
+  rpc GetPostInteractions(GetPostInteractionsRequest) returns (PostInteractionsResponse);
+
+  rpc GetBatchOfPostInteractions(GetBatchOfPostInteractionsRequest) returns (BatchOfPostInteractionsResponse);
+}

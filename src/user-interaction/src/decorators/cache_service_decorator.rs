@@ -1,8 +1,8 @@
 ﻿use crate::services::cache_service::{CacheService, RedisCacheService};
+use crate::utils::helpers::get_container_id;
 use crate::{errors, settings};
 use async_trait::async_trait;
 use opentelemetry::metrics::{Counter, Histogram};
-use opentelemetry::trace::SpanKind;
 use opentelemetry::{global, KeyValue};
 use redis::aio::MultiplexedConnection;
 use serde::de::DeserializeOwned;
@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use tracing::{field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use crate::utils::constants::OTEL_SERVICE_NAME;
 
 pub struct DecoratedCacheService<C: CacheService> {
     cache_service: C,
@@ -39,6 +40,7 @@ pub struct ObservableCacheService<C: CacheService + 'static> {
     inner: C,
     request_count: Counter<u64>,
     request_latency: Histogram<f64>,
+    attributes: Vec<KeyValue>
 }
 
 impl<T: CacheService + 'static> ObservableCacheService<T> {
@@ -47,24 +49,31 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
 
-        let meter_provider = global::meter("user-interaction");
+        let meter_provider = global::meter(OTEL_SERVICE_NAME);
         let request_count = meter_provider
-            .u64_counter("cache_service_requests_total")
-            .with_description("Total requests to Cache Service")
-            .with_unit("CacheService")
+            .u64_counter("cache_operations_total")
+            .with_description("Total cache operations (set/get/delete)")
             .build();
 
         let request_latency = meter_provider
-            .f64_histogram("cache_service_request_duration_seconds")
-            .with_description("Latency of Cache Service methods")
+            .f64_histogram("cache_operation_duration_seconds")
+            .with_description("Time taken for cache operations")
             .with_boundaries(boundaries)
-            .with_unit("CacheService")
             .build();
-        
+
+        let host_name = get_container_id().unwrap_or(String::from("0.0.0.0"));
+        let attributes = vec![
+            KeyValue::new("service", OTEL_SERVICE_NAME),
+            KeyValue::new("instance", host_name),
+            KeyValue::new("cache", "redis"),
+            KeyValue::new("env", std::env::var("APP_ENV").unwrap_or(String::from("development")))
+        ];
+
         Self {
             inner,
             request_count,
             request_latency,
+            attributes
         }
     }
 
@@ -83,7 +92,7 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
         let span = info_span!(
             "",
             "otel.name" = query_summary,
-            "otel.kind" = ?SpanKind::Client,
+            "otel.kind" = "client",
             "db.system.name" = "redis",
             "db.operation.name" = operation_name,
             "db.namespace" = namespace,
@@ -105,8 +114,9 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
             .record(start_time.elapsed().as_secs_f64(), &attributes);
 
         attributes.push(KeyValue::new("status", status));
+        attributes.extend_from_slice(&self.attributes);
+        
         self.request_count.add(1, &attributes);
-
         if let Err(ref err) = result {
             span.record("error.type", "cache_error")
                 .set_status(opentelemetry::trace::Status::error(err.to_string()));
@@ -226,7 +236,10 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
         .await
     }
 
-    async fn pfcount_many(&self, keys: &[String]) -> Result<HashMap<String, u64>, errors::RedisError> {
+    async fn pfcount_many(
+        &self,
+        keys: &[String],
+    ) -> Result<HashMap<String, u64>, errors::RedisError> {
         let namespace = keys.join(" ");
         self.track_method(
             "pfcount_many",
@@ -235,7 +248,7 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             &namespace,
             self.inner.pfcount_many(keys),
         )
-            .await
+        .await
     }
 
     async fn sadd(&self, key: &str, member: &str) -> Result<bool, errors::RedisError> {

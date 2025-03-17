@@ -19,9 +19,9 @@ internal sealed class ObservableCacheService : ICacheService
         _cacheService = cacheService;
         _activitySource = instrumentation.ActivitySource;
 
-        _requestCount = instrumentation.GetCounterOrCreate("cache_service_request_count", "Number of Redis requests");
-        _requestDuration = instrumentation.GetHistogramOrCreate("cache_service_request_duration", "Duration of Redis requests");
-        
+        _requestCount = instrumentation.GetCounterOrCreate("cache_operations_total", "Total cache operations (set/get/delete)");
+        _requestDuration = instrumentation.GetHistogramOrCreate("cache_operation_duration_seconds", "Time taken for cache operations");
+
         _tags = new Dictionary<string, object?>
         {
             ["db.system.name"] = "redis"
@@ -115,14 +115,10 @@ internal sealed class ObservableCacheService : ICacheService
             ActivityKind.Client,
             null,
             _tags);
-        
-        var sw = Stopwatch.StartNew();
-        _requestCount.Add(1, new TagList
-        {
-            { "operation", operation },
-            { "method", methodName }
-        });
 
+        string status = "success";
+
+        var sw = Stopwatch.StartNew();
         try
         {
             var result = await action();
@@ -136,16 +132,23 @@ internal sealed class ObservableCacheService : ICacheService
             activity!.SetStatus(ActivityStatusCode.Error, e.Message);
             activity.SetTag("error.message", e.Message);
             activity.SetTag("error.type", "database_error");
+            status = "error";
             
-            return null;
+            throw;
         }
         finally
         {
-            _requestDuration.Record(sw.ElapsedMilliseconds, new TagList
+            var tagList = new TagList
             {
+                { "service", Instrumentation.ActivitySourceName},
                 { "operation", operation },
                 { "method", methodName },
-            });
+                { "cache", "redis" },
+                { "status", status },
+            };
+            
+            _requestCount.Add(1, tagList);
+            _requestDuration.Record(sw.Elapsed.Seconds, tagList);
         }
     }
 

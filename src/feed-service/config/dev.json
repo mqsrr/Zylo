@@ -1,0 +1,27 @@
+{
+  "server": {
+    "port": ":8080",
+    "environment": "Development",
+    "serviceName": "feed-service"
+  },
+  "db": {
+    "uri": "neo4j://localhost:7688",
+    "username": "neo4j",
+    "password": "info-susan-shirt-sultan-random-5993"
+  },
+  "redis": {
+    "connectionString": "localhost:6379",
+    "expire": 360
+  },
+  "amqp": {
+    "amqpURI": "amqp://guest:guest@localhost:5672/",
+    "connTag": "",
+    "connName": "feed-service"
+  },
+  "grpcServer":{
+    "port": ":50051"
+  },
+  "otelCollector": {
+    "address": "localhost:4317"
+  }
+}

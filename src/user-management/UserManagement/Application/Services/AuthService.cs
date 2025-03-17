@@ -102,7 +102,8 @@ internal sealed class AuthService : IAuthService
         {
             Id = identity.Id,
             AccessToken = accessToken,
-            RefreshToken = refreshToken
+            RefreshToken = refreshToken,
+            EmailVerified = identity.EmailVerified
         };
     }
 }

@@ -28,7 +28,7 @@ func (s *Server) handlePostCreatedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.CreatePost(context.Background(), message.ID, message.UserID, message.Content, message.CreatedAt)
+	return s.postRepository.CreatePost(context.Background(), message.ID, message.UserID, message.Content, message.CreatedAt)
 }
 
 func (s *Server) handlePostUpdatedMessage(delivery amqp.Delivery) error {
@@ -37,7 +37,7 @@ func (s *Server) handlePostUpdatedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.UpdatePostTags(context.Background(), message.ID, message.Content)
+	return s.postRepository.UpdatePostTags(context.Background(), message.ID, message.Content)
 }
 
 func (s *Server) handlePostDeletedMessage(delivery amqp.Delivery) error {
@@ -46,5 +46,5 @@ func (s *Server) handlePostDeletedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.DeletePost(context.Background(), message.ID)
+	return s.postRepository.DeletePost(context.Background(), message.ID)
 }

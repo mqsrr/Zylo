@@ -7,8 +7,8 @@ namespace UserManagement.Application.Repositories.Abstractions;
 public interface IUserRepository
 {
     Task<Result<User>> GetByIdAsync(UserId id, CancellationToken cancellationToken);
-
-    Task<Result<IEnumerable<User>>> GetBatchByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken);
+    
+    Task<Result<IEnumerable<UserSummary>>> GetBatchUsersSummaryByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken);
 
     Task<Result> CreateAsync(User user, IDbConnection connection, IDbTransaction transaction);
 

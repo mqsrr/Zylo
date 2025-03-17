@@ -3,12 +3,14 @@ using Amazon.S3;
 using Asp.Versioning;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Serilog;
 using UserManagement.Application.Extensions;
 using UserManagement.Application.Factories;
 using UserManagement.Application.Factories.Abstractions;
 using UserManagement.Application.Helpers;
 using UserManagement.Application.Messaging.Users;
+using UserManagement.Application.Middleware;
 using UserManagement.Application.Repositories;
 using UserManagement.Application.Repositories.Abstractions;
 using UserManagement.Application.Services;
@@ -17,17 +19,16 @@ using UserManagement.Application.Validators;
 using UserManagement.Decorators;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.ConfigureOpenTelemetry();
-
-builder.Host.UseSerilog((context, configuration) =>
-    configuration.ReadFrom.Configuration(context.Configuration));
-
 builder.Configuration.AddEnvFile();
-
 builder.Configuration.AddAzureKeyVault();
-builder.Configuration.AddJwtBearer(builder);
-builder.Services.AddControllers();
 
+builder.Host.UseSerilog((context, configuration) => configuration.ReadFrom.Configuration(context.Configuration));
+builder.ConfigureOpenTelemetry(builder.Configuration["OTEL:CollectorAddress"]!);
+
+builder.Configuration.AddJwtBearer(builder);
+builder.Services.ConfigureJsonSerializer();
+
+builder.Services.AddControllers();
 builder.Services.AddApiVersioning(new HeaderApiVersionReader());
 builder.Services.AddConnectionMultiplexer(builder.Configuration["Redis:ConnectionString"]!);
 
@@ -41,6 +42,7 @@ builder.Services.Decorate<IUserRepository>((repository, provider) => new CachedU
 builder.Services.AddScoped<IIdentityRepository, IdentityRepository>();
 builder.Services.Decorate<IIdentityRepository, ExceptionlessIdentityRepository>();
 builder.Services.Decorate<IIdentityRepository>((repository, provider) => new ObservableIdentityRepository(repository, provider.GetRequiredService<Instrumentation>()));
+builder.Services.Decorate<IIdentityRepository>((repository, provider) => new CachedIdentityRepository(repository, provider.GetRequiredService<ICacheService>()));
 
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.Decorate<IRefreshTokenRepository, ExceptionlessRefreshTokenRepository>();
@@ -57,8 +59,8 @@ builder.Services.AddScoped<ICacheService, CacheService>();
 builder.Services.Decorate<ICacheService, ObservableCacheService>();
 
 builder.Services.AddScoped<IImageService, ImageService>();
-builder.Services.Decorate<IImageService, CachedImageService>();
-builder.Services.Decorate<IImageService>((repository, provider) => new ObservableImageService(repository, provider.GetRequiredService<Instrumentation>()));
+builder.Services.Decorate<IImageService, ObservableImageService>();
+builder.Services.Decorate<IImageService>((repository, provider) => new CachedImageService(repository, provider.GetRequiredService<ICacheService>()));
 
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
@@ -86,6 +88,9 @@ builder.Services.AddApplicationSettings(builder.Configuration);
 builder.Services.AddFluentValidationAutoValidation()
     .AddValidatorsFromAssemblyContaining<RegisterRequestValidator>(includeInternalTypes: true);
 
+builder.Services.AddTransient<MetricsMiddleware>();
+builder.Services.AddTransient<RequestIdMiddleware>();
+
 builder.Services.AddRabbitMqBus(mqBuilder =>
     mqBuilder
         .AddPublisher<UserCreated>("user-exchange", "user.created")
@@ -100,10 +105,18 @@ builder.Services.AddCors(options =>
             .WithOrigins("http://localhost:5173")
             .AllowCredentials()));
 
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(50051, listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+    options.ListenAnyIP(8080, listenOptions => { listenOptions.Protocols = HttpProtocols.Http1; });
+});
+
 var app = builder.Build();
 
 app.MigrateDatabase();
 app.UseSerilogRequestLogging();
+app.UseMiddleware<RequestIdMiddleware>();
+app.UseMiddleware<MetricsMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -114,5 +127,3 @@ app.MapHealthChecks("/healthz").ExcludeFromDescription();
 app.MapGrpcService<UserManagement.Application.Services.UserProfileService>();
 app.UseCors();
 app.Run();
-
-

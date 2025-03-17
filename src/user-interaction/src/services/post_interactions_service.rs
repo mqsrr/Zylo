@@ -1,10 +1,9 @@
 ﻿use crate::errors;
-use crate::models::reply::{PostInteractionResponse};
+use crate::models::reply::PostInteractionResponse;
 use crate::repositories::interaction_repo::InteractionRepository;
 use crate::services::reply_service::ReplyService;
 use crate::utils::helpers::PostInteractionResponseBuilder;
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 use ulid::Ulid;
 
@@ -107,44 +106,34 @@ where
         )?;
 
         let is_liked_map = match user_id {
-            Some(uid) => {
-                let is_liked_map = self
-                    .interaction_repo
-                    .is_many_liked(&posts_ids_string, &uid)
-                    .await?;
-
-                Ok::<Option<HashMap<String, bool>>, errors::RedisError>(Some(is_liked_map))
-            }
-            None => Ok(None),
-        }?;
+            Some(uid) => Some(self.interaction_repo.is_many_liked(&posts_ids_string, &uid).await?),
+            None => None,
+        };
 
         let mut responses = Vec::new();
-        for (post_id, replies) in replies_map {
+        for post_id in posts_ids {
             let post_id_string = post_id.to_string();
-            let user_interacted_on_post = is_liked_map
+            let replies = replies_map.get(post_id).cloned();
+            let user_interacted = is_liked_map
                 .as_ref()
                 .and_then(|map| map.get(&post_id_string).copied());
+            
+            let likes = posts_likes.get(&post_id_string).copied().unwrap_or_default();
+            let views = posts_views.get(&post_id_string).copied().unwrap_or_default();
 
-            let post_likes = posts_likes
-                .get(&post_id_string)
-                .copied()
-                .unwrap_or_default();
+            let mut builder = PostInteractionResponseBuilder::new()
+                .post_id(*post_id)
+                .likes(likes)
+                .views(views)
+                .user_interacted(user_interacted);
 
-            let post_views = posts_views
-                .get(&post_id_string)
-                .copied()
-                .unwrap_or_default();
+            if let Some(replies) = replies {
+                builder = builder.replies(replies);
+            }
 
-            let response = PostInteractionResponseBuilder::new()
-                .post_id(post_id)
-                .replies(replies)
-                .likes(post_likes)
-                .views(post_views)
-                .user_interacted(user_interacted_on_post)
-                .build();
-
-            responses.push(response);
-        }
+            responses.push(builder.build());
+        } 
+       
 
         Ok(responses)
     }

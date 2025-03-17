@@ -2,6 +2,7 @@
 using UserManagement.Application.Contracts.Requests.Users;
 using UserManagement.Application.Contracts.Responses;
 using UserManagement.Application.Models;
+using UserProfileService;
 
 namespace UserManagement.Application.Mappers;
 
@@ -65,6 +66,21 @@ internal static class UserMapper
             Birthdate = user.BirthDate.ToString("O"),
             Bio = user.Bio,
             Location = user.Location
+        };
+    }
+
+    internal static GrpcUserPreview ToGrpcResponse(this UserSummary user)
+    {
+        return new GrpcUserPreview
+        {
+            Id = user.Id.ToString(),
+            Name = user.Name,
+            ProfileImage = new UserImage
+            {
+                Url = user.ProfileImage!.AccessUrl.Url,
+                ContentType = user.ProfileImage.ContentType,
+                FileName = user.ProfileImage.FileName
+            },
         };
     }
 

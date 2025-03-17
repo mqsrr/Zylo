@@ -1,4 +1,3 @@
-use crate::errors;
 use crate::models::reply::{PostInteractionResponse, ReplyResponse};
 use crate::services::grpc_server::reply_server::reply_service_server::ReplyService as GrpcReplyService;
 use crate::services::grpc_server::reply_server::{BatchOfPostInteractionsResponse, GetBatchOfPostInteractionsRequest, GetPostInteractionsRequest, GetReplyByIdRequest, PostInteractionsResponse as GrpcPostInteractionsResponse, ReplyResponse as GrpcReplyResponse};
@@ -7,11 +6,29 @@ use crate::services::reply_service::ReplyService;
 use chrono::Utc;
 use std::str::FromStr;
 use std::sync::Arc;
+use opentelemetry::propagation::Extractor;
 use tonic::{Request, Response, Status};
 use ulid::Ulid;
 
 pub mod reply_server {
     tonic::include_proto!("reply_server");
+}
+pub struct MetadataMap<'a>(pub &'a tonic::metadata::MetadataMap);
+
+impl Extractor for MetadataMap<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|metadata| metadata.to_str().ok())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0
+            .keys()
+            .map(|key| match key {
+                tonic::metadata::KeyRef::Ascii(v) => v.as_str(),
+                tonic::metadata::KeyRef::Binary(v) => v.as_str(),
+            })
+            .collect::<Vec<_>>()
+    }
 }
 
 impl From<ReplyResponse> for GrpcReplyResponse {
@@ -98,11 +115,7 @@ where
         let response = self
             .reply_service
             .get(&reply_id, Some(user_id))
-            .await
-            .map_err(|e| match e {
-                errors::AppError::NotFound(err) => Status::not_found(err),
-                _ => Status::internal(e.to_string()),
-            })?;
+            .await?;
 
         let grpc_reply = GrpcReplyResponse::from(response);
         Ok(Response::new(grpc_reply))
@@ -123,11 +136,7 @@ where
         let response = self
             .post_interactions_service
             .get_post_interactions(post_id, interaction_user_id)
-            .await
-            .map_err(|e| match e {
-                errors::AppError::NotFound(err) => Status::not_found(err),
-                _ => Status::internal(e.to_string()),
-            })?;
+            .await?;
 
         Ok(Response::new(GrpcPostInteractionsResponse::from(response)))
     }
@@ -150,11 +159,7 @@ where
         let replies = self
             .post_interactions_service
             .get_posts_interactions(&posts_ids, interaction_user_id)
-            .await
-            .map_err(|e| match e {
-                errors::AppError::NotFound(err) => Status::not_found(err),
-                _ => Status::internal(e.to_string()),
-            })?;
+            .await?;
 
             Ok(Response::new(BatchOfPostInteractionsResponse {
                 posts_interactions: replies.into_iter().map(GrpcPostInteractionsResponse::from).collect(),

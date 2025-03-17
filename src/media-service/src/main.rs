@@ -1,4 +1,4 @@
-use crate::app::{init_meter, init_trace, init_tracing, run_app};
+use crate::app::{init_logs, init_metrics, init_trace, init_traces, run_app};
 use crate::decorators::cache_service_decorator::ObservableCacheService;
 use crate::decorators::grpc_server_decorator::ObservablePostServer;
 use crate::decorators::post_repo_decorator::DecoratedPostRepositoryBuilder;
@@ -27,14 +27,14 @@ mod utils;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
-    
-    let trace_provider = init_tracing();
-    let meter_provider = init_meter();
-    
-    init_trace(&trace_provider);
     let config = AppConfig::new().await;
+    
+    let trace_provider = init_traces(&config.otel_collector.address);
+    let meter_provider = init_metrics(&config.otel_collector.address);
+    let logger_provider = init_logs(&config.otel_collector.address);
+    init_trace(&logger_provider, &trace_provider);
+    
     let mongo_db = init_db(&config.database).await;
-
     let cache_service = Arc::new(ObservableCacheService::new(RedisCacheService::new(
         config.redis.clone(),
     )?));
@@ -42,22 +42,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let s3_service = Arc::new(
         DecoratedS3ServiceBuilder::new(config.s3_config.clone())
             .await
-            .cached(cache_service.clone())
             .observable()
+            .cached(cache_service.clone())
             .build(),
     );
 
     let post_repo = Arc::new(
         DecoratedPostRepositoryBuilder::new(&mongo_db, s3_service.clone())
-            .cached(cache_service.clone())
             .observable()
+            .cached(cache_service.clone())
             .build(),
     );
 
     let user_repo = Arc::new(
         DecoratedUserRepository::new(mongo_db)
-            .cached(cache_service.clone())
             .observable()
+            .cached(cache_service.clone())
             .build(),
     );
 
@@ -74,5 +74,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     trace_provider.shutdown()?;
     meter_provider.shutdown()?;
+    logger_provider.shutdown()?;
     Ok(())
 }

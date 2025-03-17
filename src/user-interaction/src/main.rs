@@ -1,4 +1,4 @@
-use crate::app::{init_meter, init_trace, init_tracing, run_app};
+use crate::app::{init_logs, init_metrics, init_tracing, init_traces, run_app};
 use crate::decorators::cache_service_decorator::DecoratedCacheService;
 use crate::decorators::grpc_server_decorator::DecoratedGrpcServer;
 use crate::decorators::posts_repo_decorator::DecoratedPostsRepository;
@@ -40,13 +40,13 @@ async fn init_db(config: &Database) -> Result<PgPool, errors::DatabaseError> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
-
-    let trace_provider = init_tracing();
-    let meter_provider = init_meter();
-
-    init_trace(&trace_provider);
-
     let config = AppConfig::new().await;
+
+    let trace_provider = init_traces(&config.otel_collector.address);
+    let meter_provider = init_metrics(&config.otel_collector.address);
+    let logger_provider = init_logs(&config.otel_collector.address);
+    init_tracing(&logger_provider, &trace_provider);
+
     let pg_pool = init_db(&config.database).await?;
 
     let reply_repo = Arc::new(
@@ -111,5 +111,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     trace_provider.shutdown()?;
     meter_provider.shutdown()?;
+    logger_provider.shutdown()?;
     Ok(())
 }

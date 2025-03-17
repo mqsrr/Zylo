@@ -2,79 +2,83 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/jwtauth/v5"
-	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/mqsrr/zylo/feed-service/internal/config"
-	"github.com/mqsrr/zylo/feed-service/internal/db"
-	m "github.com/mqsrr/zylo/feed-service/internal/middleware"
+	"github.com/mqsrr/zylo/feed-service/internal/decorators"
 	"github.com/mqsrr/zylo/feed-service/internal/mq"
+	"github.com/mqsrr/zylo/feed-service/internal/proto/github.com/mqsrr/zylo/feed-service/proto"
+	"github.com/mqsrr/zylo/feed-service/internal/storage"
+	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"github.com/rs/zerolog/log"
-	"net/http"
-	"time"
+	log2 "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/trace"
+	"google.golang.org/grpc"
+	"net"
 )
 
-var tokenAuth *jwtauth.JWTAuth
-
 type Server struct {
-	*chi.Mux
-	config     *config.Config
-	storage    db.RecommendationService
-	consumer   mq.Consumer
-	httpServer *http.Server
+	config                *config.Config
+	grpcServer            *grpc.Server
+	userRepository        storage.UserRepository
+	postRepository        storage.PostRepository
+	interactionRepository storage.InteractionRepository
+	traceProvider         *trace.TracerProvider
+	meterProvider         *metric.MeterProvider
+	loggerProvider        *log2.LoggerProvider
+	consumer              mq.Consumer
 }
 
-func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
-	w.Header().Add("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	if content != nil {
-		jsonContent, _ := json.Marshal(content)
-		w.Write(jsonContent)
+func NewServer(ctx context.Context,
+	cfg *config.Config,
+	consumer mq.Consumer,
+	grpcServer *grpc.Server,
+	traceProvider *trace.TracerProvider,
+	meterProvider *metric.MeterProvider,
+	loggerProvider *log2.LoggerProvider,
+	driver neo4j.DriverWithContext) (*Server, error) {
+	userRepository, err := storage.NewNeo4jUserRepository(ctx, driver)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func NewServer(cfg *config.Config, storage db.RecommendationService, consumer mq.Consumer) *Server {
-	srv := &Server{
-		config:   cfg,
-		storage:  storage,
-		consumer: consumer,
+	decoratedUserRepository, err := decorators.NewObservableUserRepository(userRepository, traceProvider, meterProvider)
+	if err != nil {
+		return nil, err
 	}
 
-	srv.httpServer = &http.Server{
-		Addr:    cfg.ListeningAddress,
-		Handler: srv,
+	postRepository, err := storage.NewNeo4jPostRepository(ctx, driver)
+	if err != nil {
+		return nil, err
 	}
 
-	return srv
+	decoratedPostRepository, err := decorators.NewObservablePostRepository(postRepository, traceProvider, meterProvider)
+	if err != nil {
+		return nil, err
+	}
+
+	interactionRepository, err := storage.NewNeo4jInteractionRepository(ctx, driver)
+	if err != nil {
+		return nil, err
+	}
+
+	decoratedInteractionRepository, err := decorators.NewObservableInteractionRepository(interactionRepository, traceProvider, meterProvider)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Server{
+		config:                cfg,
+		grpcServer:            grpcServer,
+		userRepository:        decoratedUserRepository,
+		postRepository:        decoratedPostRepository,
+		interactionRepository: decoratedInteractionRepository,
+		traceProvider:         traceProvider,
+		meterProvider:         meterProvider,
+		loggerProvider:        loggerProvider,
+		consumer:              consumer,
+	}, nil
 }
 
-func setupJWT(cfg *config.JwtConfig) {
-	tokenAuth = jwtauth.New(
-		"HS256",
-		[]byte(cfg.Secret),
-		nil,
-		jwt.WithAcceptableSkew(5*time.Second),
-		jwt.WithAudience(cfg.Audience),
-		jwt.WithIssuer(cfg.Issuer))
-}
-
-func (s *Server) MountHandlers() error {
-	setupJWT(s.config.Jwt)
-
-	r := chi.NewRouter()
-	r.Use(m.ZerologMiddleware)
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-	r.Use(jwtauth.Verifier(tokenAuth))
-	r.Use(jwtauth.Authenticator(tokenAuth))
-
-	r.With(ValidateRequestParams).Get("/api/users/{userID}/feed", ErrHandler(s.HandleGetFeed))
-
+func (s *Server) MountHandlers(feedServer *FeedServiceServer) error {
 	if err := s.HandleUserMessages(); err != nil {
 		return err
 	}
@@ -90,13 +94,25 @@ func (s *Server) MountHandlers() error {
 	if err := s.HandleUserSocialMessages(); err != nil {
 		return err
 	}
-	s.Mux = r
+
+	observableGrpcServer, err := decorators.NewObservableFeedServiceServer(feedServer, s.meterProvider)
+	if err != nil {
+		return err
+	}
+
+	proto.RegisterFeedServiceServer(s.grpcServer, observableGrpcServer)
 	return nil
 }
 
 func (s *Server) ListenAndServe() error {
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		lis, err := net.Listen("tcp", s.config.GrpcServer.Port)
+		if err != nil {
+			panic(err)
+		}
+
+		log.Info().Msgf("gRPC server is listening on %s", s.config.GrpcServer.Port)
+		if err := s.grpcServer.Serve(lis); err != nil {
 			panic(err)
 		}
 	}()
@@ -105,18 +121,22 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
-	}
-
-	if err := s.storage.Shutdown(ctx); err != nil {
-		log.Err(err).Msg("Database connection could not be closed")
-		return err
-	}
-
 	if err := s.consumer.Shutdown(); err != nil {
 		return err
 	}
 
+	if err := s.traceProvider.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	if err := s.meterProvider.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	if err := s.loggerProvider.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	s.grpcServer.GracefulStop()
 	return nil
 }

@@ -3,10 +3,11 @@ using UserManagement.Application.Extensions;
 using UserManagement.Application.Mappers;
 using UserManagement.Application.Models;
 using UserManagement.Application.Services.Abstractions;
+using UserProfileService;
 
 namespace UserManagement.Application.Services;
 
-internal sealed class UserProfileService : global::UserProfileService.UserProfileServiceBase
+internal sealed class UserProfileService : global::UserProfileService.UserProfileService.UserProfileServiceBase
 {
     private readonly IUserService _userService;
 
@@ -22,12 +23,12 @@ internal sealed class UserProfileService : global::UserProfileService.UserProfil
             success: u => u.ToGrpcResponse(),
             failure: e => throw new RpcException(e.ToGrpcStatus()));
     }
-
-    public override async Task<BatchUsersResponse> GetBatchUsersByIds(GetBatchUsersByIdsRequest request, ServerCallContext context)
+    
+    public override async Task<BatchUsersSummaryResponse> GetBatchUsersSummaryByIds(GetBatchUsersByIdsRequest request, ServerCallContext context)
     {
-        var usersResult = await _userService.GetBatchUsersByIdsAsync(request.UserIds.Select(UserId.Parse), context.CancellationToken);
+        var usersResult = await _userService.GetBatchUsersSummaryByIdsAsync(request.UserIds.Select(UserId.Parse), context.CancellationToken);
         return usersResult.Match(
-            success: u => new BatchUsersResponse
+            success: u => new BatchUsersSummaryResponse
             {
                 Users = { u.Select(user => user.ToGrpcResponse()) }
             },

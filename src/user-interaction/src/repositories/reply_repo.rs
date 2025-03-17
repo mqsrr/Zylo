@@ -119,7 +119,7 @@ impl ReplyRepository for PostgresReplyRepository {
               path
             FROM replies
             WHERE post_id = ANY($1)
-            ORDER BY created_at ASC
+            ORDER BY created_at
             "#,
         )
         .bind(&post_id_bytes)

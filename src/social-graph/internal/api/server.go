@@ -15,6 +15,7 @@ import (
 	"github.com/mqsrr/zylo/social-graph/internal/protos/github.com/mqsrr/zylo/social-graph/proto"
 	"github.com/mqsrr/zylo/social-graph/internal/storage"
 	"github.com/rs/zerolog/log"
+	log2 "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
@@ -23,18 +24,17 @@ import (
 	"time"
 )
 
-var tokenAuth *jwtauth.JWTAuth
-
 type Server struct {
 	*chi.Mux
-	cfg           *config.Config
-	storage       storage.RelationshipStorage
-	grpcServer    *grpc.Server
-	cache         storage.CacheStorage
-	consumer      mq.Consumer
-	traceProvider *trace.TracerProvider
-	meterProvider *metric.MeterProvider
-	httpServer    *http.Server
+	cfg            *config.Config
+	storage        storage.RelationshipStorage
+	grpcServer     *grpc.Server
+	cache          storage.CacheStorage
+	consumer       mq.Consumer
+	traceProvider  *trace.TracerProvider
+	meterProvider  *metric.MeterProvider
+	loggerProvider *log2.LoggerProvider
+	httpServer     *http.Server
 }
 
 func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
@@ -47,15 +47,16 @@ func ResponseWithJSON(w http.ResponseWriter, statusCode int, content any) {
 	}
 }
 
-func NewServer(config *config.Config, storage storage.RelationshipStorage, grpcServer *grpc.Server, cache storage.CacheStorage, consumer mq.Consumer, traceProvider *trace.TracerProvider, meterProvider *metric.MeterProvider) *Server {
+func NewServer(config *config.Config, storage storage.RelationshipStorage, grpcServer *grpc.Server, cache storage.CacheStorage, consumer mq.Consumer, traceProvider *trace.TracerProvider, meterProvider *metric.MeterProvider, loggerProvider *log2.LoggerProvider) *Server {
 	srv := &Server{
-		cfg:           config,
-		storage:       storage,
-		grpcServer:    grpcServer,
-		cache:         cache,
-		consumer:      consumer,
-		traceProvider: traceProvider,
-		meterProvider: meterProvider,
+		cfg:            config,
+		storage:        storage,
+		grpcServer:     grpcServer,
+		cache:          cache,
+		consumer:       consumer,
+		traceProvider:  traceProvider,
+		meterProvider:  meterProvider,
+		loggerProvider: loggerProvider,
 	}
 
 	srv.httpServer = &http.Server{
@@ -66,8 +67,8 @@ func NewServer(config *config.Config, storage storage.RelationshipStorage, grpcS
 	return srv
 }
 
-func setupJWT(config *config.JwtConfig) {
-	tokenAuth = jwtauth.New(
+func setupJWT(config *config.Jwt) *jwtauth.JWTAuth {
+	return jwtauth.New(
 		"HS256",
 		[]byte(config.Secret),
 		nil,
@@ -77,20 +78,20 @@ func setupJWT(config *config.JwtConfig) {
 }
 
 func (s *Server) MountHandlers() error {
-	setupJWT(s.cfg.Jwt)
+	tokenAuth := setupJWT(s.cfg.Jwt)
 	r := chi.NewRouter()
 
 	r.Use(
+		jwtauth.Verifier(tokenAuth),
+		jwtauth.Authenticator(tokenAuth),
 		middleware.RequestID,
 		middleware.RealIP,
 		middleware.Recoverer,
-		m.ZerologMiddleware,
-		m.Instrumented(s.traceProvider, s.meterProvider),
-		jwtauth.Verifier(tokenAuth),
-		jwtauth.Authenticator(tokenAuth))
+		m.RequestLogger,
+		m.OtelMiddleware(s.meterProvider),
+	)
 
 	r.Route("/api/users/{id}", func(r chi.Router) {
-
 		r.Get("/relationships", m.MustUlidParams(s.HandleGetUserWithRelationships))
 
 		r.Route("/followers", func(r chi.Router) {
@@ -113,7 +114,6 @@ func (s *Server) MountHandlers() error {
 			r.Delete("/{blockedId}", m.MustUlidParams(s.HandleUnblockUser, "blockedId"))
 		})
 	})
-
 	if err := s.HandleUserCreatedMessage(); err != nil {
 		return err
 	}
@@ -123,12 +123,12 @@ func (s *Server) MountHandlers() error {
 	}
 
 	relSvc := NewRelationshipServiceServer(s.storage)
-	observableServer, err := decorators.NewObservableRelationshipServer(relSvc, s.traceProvider, s.meterProvider)
+	decoratedSvc, err := decorators.NewObservableRelationshipServer(relSvc, s.meterProvider)
 	if err != nil {
 		return err
 	}
 
-	proto.RegisterRelationshipServiceServer(s.grpcServer, observableServer)
+	proto.RegisterRelationshipServiceServer(s.grpcServer, decoratedSvc)
 
 	s.Mux = r
 	return nil
@@ -171,6 +171,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	if err := s.meterProvider.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	if err := s.loggerProvider.Shutdown(ctx); err != nil {
 		return err
 	}
 

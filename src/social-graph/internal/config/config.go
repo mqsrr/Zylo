@@ -1,14 +1,17 @@
 package config
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -16,47 +19,53 @@ type SecretClient interface {
 	GetSecret(ctx context.Context, name string, version string, options *azsecrets.GetSecretOptions) (azsecrets.GetSecretResponse, error)
 }
 
-type ServerConfig struct {
+type Server struct {
 	Port        string `json:"port"`
 	Environment string `json:"environment"`
+	ServiceName string `json:"serviceName"`
 }
 
 type Config struct {
-	*ServerConfig `json:"serverConfig"`
-	DB            *DbConfig         `json:"db"`
-	Redis         *RedisConfig      `json:"redis"`
-	Jwt           *JwtConfig        `json:"jwt"`
-	Amqp          *RabbitmqConfig   `json:"amqp"`
-	GrpcServer    *GrpcServerConfig `json:"grpcServer"`
+	*Server       `json:"server"`
+	DB            *Db            `json:"db"`
+	Redis         *Redis         `json:"redis"`
+	Jwt           *Jwt           `json:"jwt"`
+	Amqp          *Rabbitmq      `json:"amqp"`
+	GrpcServer    *GrpcServer    `json:"grpcServer"`
+	OtelCollector *OtelCollector `json:"otelCollector"`
 }
 
-type RabbitmqConfig struct {
+type Rabbitmq struct {
 	AmqpURI  string `json:"amqpURI"`
 	ConnTag  string `json:"connTag"`
 	ConnName string `json:"connName"`
 }
 
-type JwtConfig struct {
+type Jwt struct {
 	Secret   string `json:"secret"`
 	Issuer   string `json:"issuer"`
 	Audience string `json:"audience"`
 }
 
-type RedisConfig struct {
+type Redis struct {
 	ConnectionString string        `json:"connectionString"`
 	Expire           time.Duration `json:"expire"`
 }
 
-type DbConfig struct {
+type Db struct {
 	Uri      string `json:"uri"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
-type GrpcServerConfig struct {
+type GrpcServer struct {
 	Port string `json:"port"`
 }
 
-var DefaultConfig *ServerConfig
+type OtelCollector struct {
+	Address string `json:"address"`
+}
+
+var DefaultConfig *Server
 
 func CreateKeyVaultClient() (*azsecrets.Client, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
@@ -79,7 +88,7 @@ func getSecretValue(key string, client SecretClient) string {
 
 	secretResp, err := client.GetSecret(ctx, key, "", nil)
 	if err == nil && secretResp.Value != nil {
-		log.Info().Msg(fmt.Sprintf("Secret %s retrieved from Azure Key Vault", key))
+		log.Debug().Msg(fmt.Sprintf("Secret %s retrieved from Azure Key Vault", key))
 		return *secretResp.Value
 	}
 
@@ -125,7 +134,7 @@ func loadConfigFromFile(filePath string) (*Config, error) {
 		return nil, err
 	}
 
-	DefaultConfig = config.ServerConfig
+	DefaultConfig = config.Server
 	config.Redis.Expire = config.Redis.Expire * time.Minute
 	return &config, nil
 }
@@ -136,12 +145,12 @@ func loadConfigFromSecretStore() (*Config, error) {
 		return nil, err
 	}
 
-	amqpConfig := &RabbitmqConfig{
+	amqpConfig := &Rabbitmq{
 		AmqpURI:  getSecretValue("Zylo-RabbitMq--ConnectionString", client),
 		ConnName: "social-graph",
 	}
 
-	jwtConfig := &JwtConfig{
+	jwtConfig := &Jwt{
 		Secret:   getSecretValue("Zylo-Jwt--Secret", client),
 		Issuer:   getSecretValue("Zylo-Jwt--Issuer", client),
 		Audience: getSecretValue("Zylo-Jwt--Audience", client),
@@ -151,43 +160,74 @@ func loadConfigFromSecretStore() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	redisConfig := &RedisConfig{
+	redisConfig := &Redis{
 		ConnectionString: getSecretValue("Social-Redis--ConnectionString", client),
 		Expire:           time.Duration(expireInMin) * time.Minute,
 	}
 
-	dbConfig := &DbConfig{
+	dbConfig := &Db{
 		Uri:      getSecretValue("Social-Neo4j--Uri", client),
 		Username: getSecretValue("Social-Neo4j--Username", client),
 		Password: getSecretValue("Social-Neo4j--Password", client),
 	}
 
-	DefaultConfig = &ServerConfig{
+	DefaultConfig = &Server{
 		Port:        getEnvValue("PORT", ":8080"),
 		Environment: getEnvValue("ENVIRONMENT", "Development"),
+		ServiceName: "social-graph",
 	}
 
-	grpcServerConfig := &GrpcServerConfig{
+	grpcServerConfig := &GrpcServer{
 		Port: getSecretValue("Social-GrpcServer--Port", client),
+	}
+	otelAddress := getSecretValue("Zylo-OTEL--CollectorAddress", client)
+	otelAddress = strings.TrimPrefix(otelAddress, "http://")
+
+	otel := &OtelCollector{
+		Address: otelAddress,
 	}
 
 	config := &Config{
-		ServerConfig: DefaultConfig,
-		DB:           dbConfig,
-		Redis:        redisConfig,
-		Jwt:          jwtConfig,
-		Amqp:         amqpConfig,
-		GrpcServer:   grpcServerConfig,
+		Server:        DefaultConfig,
+		DB:            dbConfig,
+		Redis:         redisConfig,
+		Jwt:           jwtConfig,
+		Amqp:          amqpConfig,
+		GrpcServer:    grpcServerConfig,
+		OtelCollector: otel,
 	}
 
-	DefaultConfig = config.ServerConfig
+	DefaultConfig = config.Server
 	return config, nil
 }
 
 func Load() (*Config, error) {
 	if env := getEnvValue("ENVIRONMENT", "Development"); env != "Production" {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 		return loadConfigFromFile("config/dev.json")
 	}
 
 	return loadConfigFromSecretStore()
+}
+
+func GetContainerID() (string, error) {
+	file, err := os.Open("/proc/self/cgroup")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, "/")
+		if len(parts) > 2 {
+			id := parts[len(parts)-1]
+			if len(id) >= 12 {
+				return id, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("container ID not found")
 }

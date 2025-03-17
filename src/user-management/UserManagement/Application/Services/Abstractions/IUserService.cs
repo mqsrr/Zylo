@@ -7,8 +7,8 @@ namespace UserManagement.Application.Services.Abstractions;
 public interface IUserService
 {
     Task<Result<User>> GetByIdAsync(UserId id, CancellationToken cancellationToken);
-
-    Task<Result<IEnumerable<User>>> GetBatchUsersByIdsAsync(IEnumerable<UserId> ids, CancellationToken cancellationToken);
+    
+    Task<Result<IEnumerable<UserSummary>>> GetBatchUsersSummaryByIdsAsync(IEnumerable<UserId> ids, CancellationToken cancellationToken);
 
     Task<Result> CreateAsync(User user, IFormFile profileImage, IFormFile backgroundImage, IDbConnection connection, IDbTransaction transaction,
         CancellationToken cancellationToken);
