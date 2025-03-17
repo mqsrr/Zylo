@@ -1,44 +1,63 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.SignalR;
 using NotificationService.Extensions;
+using NotificationService.Factories;
 using NotificationService.Factories.Abstractions;
-using NotificationService.HostedServices;
 using NotificationService.Hubs;
-using NotificationService.Services.Abstractions;
-using NotificationService.Settings;
+using NotificationService.Messages.User;
+using NotificationService.Middleware;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
-
-builder.Host.UseSerilog((context, configuration) => 
-    configuration.ReadFrom.Configuration(context.Configuration));
 
 builder.Configuration.AddEnvFile();
 builder.Configuration.AddAzureKeyVault();
 builder.Configuration.AddJwtBearer(builder);
 
-builder.Services.AddOptionsWithValidateOnStart<RabbitMqSettings>()
-    .Bind(builder.Configuration.GetRequiredSection(RabbitMqSettings.SectionName));
+builder.Host.UseSerilog((context, configuration) => 
+    configuration.ReadFrom.Configuration(context.Configuration));
 
-builder.Services.AddOptionsWithValidateOnStart<EncryptionSettings>()
-    .Bind(builder.Configuration.GetRequiredSection(EncryptionSettings.SectionName));
+builder.ConfigureOpenTelemetry(builder.Configuration["OTEL:CollectorAddress"]!);
+builder.Services.ConfigureJsonSerializer();
 
+builder.Services.AddControllers();
+
+builder.Services.AddApiVersioning(new HeaderApiVersionReader());
 builder.Services.AddSignalR().AddAzureSignalR(builder.Configuration["SignalR:ConnectionString"]);
+builder.Services.AddConnectionMultiplexer(builder.Configuration["Redis:ConnectionString"]!);
+
+
+builder.Services.AddScoped<IDbConnectionFactory, PostgresDbConnectionFactory>();
 
 builder.Services.AddSingleton<IUserIdProvider, UserIdProvider>();
+builder.Services.AddApplicationSettings(builder.Configuration);
 
-builder.Services.AddApplicationService<IRabbitMqConnectionFactory>(ServiceLifetime.Singleton);
-builder.Services.AddApplicationService<IConsumer>(ServiceLifetime.Singleton);
+builder.Services.AddRabbitMqBus(mqBuilder =>
+    mqBuilder
+        .AddPublisher<UserCreated>("user-exchange", "user.created")
+        .AddPublisher<UserDeleted>("user-exchange", "user.deleted")
+        .AddPublisher<VerifyEmailAddress>("user-exchange", "user.verify.email"));
 
-builder.Services.AddApplicationService<IEncryptionService>(ServiceLifetime.Transient);
-builder.Services.AddHostedService<RabbitMqConsumerHostedService>();
 
+builder.Services.AddServiceHealthChecks(builder);
+builder.Services.AddCors(options =>
+    options.AddDefaultPolicy(policyBuilder =>
+        policyBuilder.AllowAnyHeader()
+            .AllowAnyMethod()
+            .WithOrigins("http://localhost:5173")
+            .AllowCredentials()));
 
 var app = builder.Build();
 
 app.UseSerilogRequestLogging();
+
+app.UseMiddleware<RequestIdMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapHub<NotificationHub>("/notifications");
+app.MapControllers();
+app.MapHealthChecks("/healthz").ExcludeFromDescription();
 
+app.MapHub<NotificationHub>("/notifications");
+app.UseCors();
 app.Run();

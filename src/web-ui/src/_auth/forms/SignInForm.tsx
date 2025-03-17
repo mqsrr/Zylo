@@ -39,7 +39,7 @@ const SignInForm = () => {
             }
 
             form.reset();
-            if (!authResult.emailVerified && authResult.success) {
+            if (!authResult.emailVerified) {
                 navigate("/verify-email");
                 return;
             }

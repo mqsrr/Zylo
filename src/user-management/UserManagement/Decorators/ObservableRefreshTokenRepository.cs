@@ -11,17 +11,21 @@ internal sealed class ObservableRefreshTokenRepository : IRefreshTokenRepository
     private readonly ActivitySource _activitySource;
     private readonly Counter<long> _requestCount;
     private readonly Histogram<double> _requestDuration;
+    private readonly Instrumentation _instrumentation;
     private readonly Dictionary<string, object?> _tags;
     private readonly IRefreshTokenRepository _tokenRepository;
 
     public ObservableRefreshTokenRepository(IRefreshTokenRepository tokenRepository, Instrumentation instrumentation)
     {
         _tokenRepository = tokenRepository;
+        _instrumentation = instrumentation;
         _activitySource = instrumentation.ActivitySource;
         
-        _requestCount = instrumentation.GetCounterOrCreate("refresh_token_repository_request_count", "Number of Refresh Token repository requests");
-        _requestDuration = instrumentation.GetHistogramOrCreate("refresh_token_repository_request_duration", "Duration of Refresh Token repository requests");
-        
+        _requestCount = instrumentation.GetCounterOrCreate("db_queries_total", "Total number of database queries");
+        _requestDuration = instrumentation.GetHistogramOrCreate("db_query_duration_seconds", "Query execution duration");
+
+        instrumentation.RegisterGauge("db_connections", "Active database connections");
+
         _tags = new Dictionary<string, object?>
         {
             ["db.system.name"] = "postgresql"
@@ -100,12 +104,8 @@ internal sealed class ObservableRefreshTokenRepository : IRefreshTokenRepository
             null,
             _tags);
         
-        _requestCount.Add(1, new TagList
-        {
-            { "operation", operation },
-            { "method", methodName }
-        });
-        
+        string status = "success";
+        _instrumentation.IncrementGauge("db_connections", 1);
         var sw = Stopwatch.StartNew();
         try
         {
@@ -120,16 +120,24 @@ internal sealed class ObservableRefreshTokenRepository : IRefreshTokenRepository
             activity!.SetStatus(ActivityStatusCode.Error, e.Message);
             activity.SetTag("error.message", e.Message);
             activity.SetTag("error.type", "database_error");
+            status = "error";
             
-            return null!;
+            throw;
         }
         finally
         {
-            _requestDuration.Record(sw.ElapsedMilliseconds, new TagList
+            _instrumentation.IncrementGauge("db_connections", -1);
+            var tagList = new TagList
             {
+                { "service", Instrumentation.ActivitySourceName},
                 { "operation", operation },
                 { "method", methodName },
-            });
+                { "db", "postgres" },
+                { "status", status },
+            };
+            
+            _requestCount.Add(1, tagList);
+            _requestDuration.Record(sw.Elapsed.Seconds, tagList);
         }
     }
 }

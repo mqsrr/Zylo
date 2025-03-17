@@ -1,6 +1,6 @@
 ﻿namespace NotificationService.Services.Abstractions;
 
-public interface IConsumer : IAsyncDisposable
+public interface IConsumer<in TEntity> : IAsyncDisposable where TEntity : class 
 {
-    Task ConsumeAsync(CancellationToken cancellationToken);
+    Task ConsumeAsync(TEntity message, CancellationToken cancellationToken);
 }

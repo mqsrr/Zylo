@@ -23,4 +23,11 @@ impl ProblemResponse for AuthError {
     fn detail(&self) -> String {
         self.to_string()
     }
+
+    fn public_detail(&self) -> &str {
+        match self {
+            AuthError::TokenNotFound => "Bearer token not found",
+            AuthError::InvalidToken => "Invalid token",
+        }
+    }
 }

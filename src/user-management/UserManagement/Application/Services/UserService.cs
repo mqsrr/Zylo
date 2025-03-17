@@ -37,30 +37,27 @@ internal sealed class UserService : IUserService
         return user;
     }
 
-    public async Task<Result<IEnumerable<User>>> GetBatchUsersByIdsAsync(IEnumerable<UserId> ids, CancellationToken cancellationToken)
+    public async Task<Result<IEnumerable<UserSummary>>> GetBatchUsersSummaryByIdsAsync(IEnumerable<UserId> ids, CancellationToken cancellationToken)
     {
-        var usersResult = await _userRepository.GetBatchByIds(ids, cancellationToken);
+        var usersResult = await _userRepository.GetBatchUsersSummaryByIds(ids, cancellationToken);
         if (usersResult.IsSuccess is false)
         {
             return usersResult;
         }
 
-        var userTasks = new Dictionary<UserId, (Task<FileMetadata> ProfileTask, Task<FileMetadata> BackgroundTask)>();
+        var userTasks = new Dictionary<UserId, Task<FileMetadata>>();
         var users = usersResult.Value!.ToList();
         
         foreach (var user in users)
         {
             var profileImageTask = _imageService.GetImageAsync(user.Id, ImageCategory.Profile, cancellationToken);
-            var backgroundImageTask = _imageService.GetImageAsync(user.Id, ImageCategory.Background, cancellationToken);
-            
-            userTasks.Add(user.Id, (profileImageTask, backgroundImageTask));
+            userTasks.Add(user.Id, profileImageTask);
         }
 
-        await Task.WhenAll(userTasks.Values.SelectMany(t => new[] { t.ProfileTask, t.BackgroundTask }));
+        await Task.WhenAll(userTasks.Values);
         foreach (var user in users)
         {
-            user.ProfileImage = await userTasks[user.Id].ProfileTask;
-            user.BackgroundImage = await userTasks[user.Id].BackgroundTask;
+            user.ProfileImage = await userTasks[user.Id];
         }
 
         return users;

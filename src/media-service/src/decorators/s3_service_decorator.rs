@@ -1,18 +1,20 @@
+use crate::decorators::trace_server_error;
 use crate::errors;
 use crate::models::file::{File, FileMetadata, PresignedUrl};
 use crate::services::cache_service::CacheService;
 use crate::services::s3_service::{S3FileService, S3Service};
 use crate::settings::S3Settings;
+use crate::utils::helpers::get_container_id;
 use async_trait::async_trait;
-use std::sync::Arc;
-use opentelemetry::{global, KeyValue};
 use opentelemetry::metrics::{Counter, Histogram};
-use opentelemetry::trace::SpanKind;
+use opentelemetry::{KeyValue, global};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Instant;
 use tracing::log::warn;
 use tracing::{field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use crate::decorators::trace_server_error;
+use crate::utils::constants::OTEL_SERVICE_NAME;
 
 pub struct DecoratedS3ServiceBuilder<S: S3Service> {
     s3_service: S,
@@ -38,9 +40,7 @@ impl<S: S3Service + 'static> DecoratedS3ServiceBuilder<S> {
         }
     }
 
-    pub fn observable(
-        self,
-    ) -> DecoratedS3ServiceBuilder<ObservableS3Service<S>> {
+    pub fn observable(self) -> DecoratedS3ServiceBuilder<ObservableS3Service<S>> {
         DecoratedS3ServiceBuilder {
             s3_service: ObservableS3Service::new(self.s3_service),
         }
@@ -55,32 +55,56 @@ pub struct ObservableS3Service<S: S3Service> {
     inner: S,
     request_count: Counter<u64>,
     request_latency: Histogram<f64>,
+    active_requests: Arc<AtomicU64>,
+    attributes: Vec<KeyValue>,
 }
 
 impl<S: S3Service> ObservableS3Service<S> {
-    pub fn new(inner: S) -> Self{
+    pub fn new(inner: S) -> Self {
         let boundaries = vec![
             0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
         ];
 
-        let meter_provider = global::meter("media-service");
+        let meter_provider = global::meter(OTEL_SERVICE_NAME);
         let request_count = meter_provider
-            .u64_counter("s3_service_requests_total")
-            .with_description("Total requests to S3 Service")
-            .with_unit("S3Service")
+            .u64_counter("s3_requests_total")
+            .with_description("Total number of S3 requests")
             .build();
 
         let request_latency = meter_provider
-            .f64_histogram("s3_service_request_duration_seconds")
-            .with_description("Latency of S3Service methods")
+            .f64_histogram("s3_request_duration_seconds")
+            .with_description("Request processing duration")
             .with_boundaries(boundaries)
-            .with_unit("S3Service")
+            .build();
+
+        let host_name = get_container_id().unwrap_or(String::from("0.0.0.0"));
+        let attributes = vec![
+            KeyValue::new("service", OTEL_SERVICE_NAME),
+            KeyValue::new("instance", host_name),
+            KeyValue::new(
+                "env",
+                std::env::var("APP_ENV").unwrap_or(String::from("development")),
+            ),
+        ];
+        let active_requests = Arc::new(AtomicU64::new(0));
+        let active_requests_clone = active_requests.clone();
+
+        let attributes_clone = attributes.clone();
+        meter_provider
+            .u64_observable_gauge("s3_active_requests")
+            .with_description("Active S3 requests")
+            .with_callback(move |observer| {
+                let value = active_requests_clone.load(Ordering::Relaxed);
+                observer.observe(value, &attributes_clone);
+            })
             .build();
 
         Self {
             inner,
             request_count,
             request_latency,
+            active_requests,
+            attributes,
         }
     }
 
@@ -93,13 +117,13 @@ impl<S: S3Service> ObservableS3Service<S> {
         operation: F,
     ) -> Result<T, E>
     where
-        F: std::future::Future<Output = Result<T, E>>,
+        F: Future<Output = Result<T, E>>,
     {
         let start_time = Instant::now();
         let span = info_span!(
             "",
             "otel.name" = query_summary,
-            "otel.kind" = ?SpanKind::Client,
+            "otel.kind" = "client",
             "rpc.system" = "aws-api",
             "rpc.service" = "S3",
             "aws.s3.key" = s3_key,
@@ -108,23 +132,25 @@ impl<S: S3Service> ObservableS3Service<S> {
             "error.message" = field::Empty,
             "error.type" = field::Empty,
         );
-
-
+        
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
         let result = operation.await;
+        self.active_requests.fetch_sub(1, Ordering::Relaxed);
+        
         let status = if result.is_ok() { "success" } else { "error" };
-        let mut attributes = vec![
-            KeyValue::new("method", method_name.to_string()),
-        ];
+        let mut attributes = vec![KeyValue::new("method", method_name.to_string())];
 
         self.request_latency
             .record(start_time.elapsed().as_secs_f64(), &attributes);
 
         attributes.push(KeyValue::new("status", status));
+        attributes.extend_from_slice(&self.attributes);
+
         self.request_count.add(1, &attributes);
 
         let result = trace_server_error(result, &span, "database_error")?;
         span.set_status(opentelemetry::trace::Status::Ok);
-        
+
         Ok(result)
     }
 }

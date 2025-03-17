@@ -5,7 +5,8 @@ import (
 )
 
 type UserCreatedMessage struct {
-	ID string `json:"id"`
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type UserDeletedMessage struct {

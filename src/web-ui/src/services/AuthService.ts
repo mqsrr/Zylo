@@ -29,8 +29,8 @@ class AuthService {
         });
 
         return response.ok
-            ? await response.json()
-            : null;
+         ? await response.json()
+         : null;
     };
 
     verifyEmail = async (id: string, otpCode: string): Promise<boolean> => {

@@ -30,10 +30,10 @@ internal sealed class UserRepository : IUserRepository
             : new NotFoundError("User not found");
     }
 
-    public async Task<Result<IEnumerable<User>>> GetBatchByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
+    public async Task<Result<IEnumerable<UserSummary>>> GetBatchUsersSummaryByIds(IEnumerable<UserId> ids, CancellationToken cancellationToken)
     {
         await using var connection = await _dbConnectionFactory.CreateAsync(cancellationToken);
-        var result = await connection.QueryAsync<User>(SqlQueries.Users.GetByIds, new
+        var result = await connection.QueryAsync<UserSummary>(SqlQueries.Users.GetUsersSummaryByIds, new
         {
             Ids = ids.Select(i => i.Value.ToByteArray()).ToArray()
         });

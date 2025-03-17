@@ -1,10 +1,23 @@
-﻿import { UserSummary } from "./User";
-
+﻿
 export interface UserRelationship {
-    followers: UserSummary[] | null;
-    followedPeople: UserSummary[] | null;
-    blockedPeople: UserSummary[] | null;
-    friends: UserSummary[] | null;
-    sentFriendRequests: UserSummary[] | null;
-    receivedFriendRequests: UserSummary[] | null;
+    follows: UserFollowRequests;
+    blocks: UserRelationshipData;
+    friends: UserRelationshipData;
+    friendRequests: UserFriendRequests;
+}
+
+interface UserFollowRequests {
+    followers: UserRelationshipData,
+    following: UserRelationshipData,
+}
+
+interface UserFriendRequests {
+    sent: UserRelationshipData,
+    received: UserRelationshipData,
+}
+
+
+interface UserRelationshipData {
+    ids: string[],
+    created_at: Map<String, String>,
 }

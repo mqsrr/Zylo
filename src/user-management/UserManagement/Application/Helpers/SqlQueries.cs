@@ -78,10 +78,10 @@ internal static class SqlQueries
                                       SELECT *
                                       FROM Users
                                       WHERE id = @Id;
-                                      """;
+                                      """;       
 
-        public const string GetByIds = """
-                                       SELECT *
+        public const string GetUsersSummaryByIds = """
+                                       SELECT id, name
                                        FROM Users
                                        WHERE id = ANY(@Ids);
                                        """;

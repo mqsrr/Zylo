@@ -1,5 +1,5 @@
 use crate::services::key_vault::KeyVault;
-use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
+use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, OTEL_COLLECTOR_ADDR, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
 use serde::Deserialize;
 use std::fs;
 
@@ -76,13 +76,25 @@ impl RabbitMq {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GrpcServer {
-    pub port: u16,
+    pub address: String,
 }
 
 impl GrpcServer {
    async fn from_key_vault(key_vault: &KeyVault) -> Self {
        Self {
-           port: key_vault.get_secret(GRPC_SERVER_ADDR).await.unwrap().parse().unwrap(),
+           address: key_vault.get_secret(GRPC_SERVER_ADDR).await.unwrap()
+       }
+   } 
+}
+#[derive(Debug, Clone, Deserialize)]
+pub struct OtelCollector {
+    pub address: String,
+}
+
+impl OtelCollector {
+   async fn from_key_vault(key_vault: &KeyVault) -> Self {
+       Self {
+           address: key_vault.get_secret(OTEL_COLLECTOR_ADDR).await.unwrap(),
        }
    } 
 }
@@ -95,13 +107,14 @@ pub struct AppConfig {
     pub auth: Auth,
     pub amq: RabbitMq,
     pub grpc_server: GrpcServer,
+    pub otel_collector: OtelCollector
 }
 
 impl AppConfig {
     pub async fn new() -> Self {
         match std::env::var("APP_ENV"){
             Ok(env) => {
-                if env == "production" {
+                if env.eq_ignore_ascii_case("production") {
                     return AppConfig::from_key_vault(&KeyVault::new().await.unwrap()).await
                 }
                 
@@ -120,7 +133,8 @@ impl AppConfig {
             redis: Redis::from_key_vault(key_vault).await,
             auth: Auth::from_key_vault(key_vault).await,
             amq: RabbitMq::from_key_vault(key_vault).await,
-            grpc_server: GrpcServer::from_key_vault(key_vault).await
+            grpc_server: GrpcServer::from_key_vault(key_vault).await,
+            otel_collector: OtelCollector::from_key_vault(key_vault).await,
         }
     }
 

@@ -83,7 +83,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-              ${{ secrets.MEDIA_INTERACTION_IMAGE }}
+              ${{ secrets.MEDIA_SERVICE_DOCKER_IMAGE }}
           tags: |
             type=match,pattern=media-service/v(.*),group=1
             type=match,pattern=media-service/v(\d.\d),group=1

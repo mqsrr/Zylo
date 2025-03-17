@@ -1,12 +1,13 @@
 {
-  "serverConfig": {
+  "server": {
     "port": ":8080",
-    "environment": "Development"
+    "environment": "Development",
+    "serviceName": "social-graph"
   },
   "db": {
     "uri": "neo4j://localhost:7687",
     "username": "neo4j",
-    "password": "leonid-samba-august-margin-wedding-4316"
+    "password": "goblin-sigma-farmer-define-visible-8374"
   },
   "redis": {
     "connectionString": "localhost:6379",
@@ -24,5 +25,8 @@
   },
   "grpcServer":{
     "port": ":50051"
+  },
+  "otelCollector": {
+    "address": "localhost:4317"
   }
 }

@@ -1,8 +1,6 @@
 ﻿namespace NotificationService.Settings;
 
-internal sealed class EncryptionSettings
+internal sealed class EncryptionSettings() : BaseSettings("Encryption")
 {
-    public const string SectionName = "Encryption";
-    
     public required string Key { get; init; }
 }

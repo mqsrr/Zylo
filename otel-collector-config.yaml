@@ -21,8 +21,7 @@ exporters:
       insecure: true
   otlphttp:
     endpoint: http://loki:3100/otlp
-  debug:
-    verbosity: detailed
+
 processors:
   batch:
     
@@ -42,4 +41,4 @@ service:
       exporters: [otlp]
     logs:
       receivers: [otlp]
-      exporters: [otlphttp, debug]
+      exporters: [otlphttp]

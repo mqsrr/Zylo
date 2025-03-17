@@ -1,4 +1,4 @@
-﻿const BaseAPIUri = "http://localhost:8090"
+﻿const BaseAPIUri = "http://localhost:10000"
 
 export const SignUpUri = `${BaseAPIUri}/auth/register`
 export const SignInUri = `${BaseAPIUri}/auth/login`
@@ -8,8 +8,8 @@ export const RevokeTokenUri = `${BaseAPIUri}/auth/token/revoke`
 
 export const GetUserUri = (id: string, currentUserId: string | null): string =>
     currentUserId
-        ? `${BaseAPIUri}/users/${id}?userId=${currentUserId}`
-        : `${BaseAPIUri}/users/${id}`
+        ? `${BaseAPIUri}/a/users/${id}?interactionUserId=${currentUserId}`
+        : `${BaseAPIUri}/a/users/${id}`
 export const UpdateUserUri = (id: string): string => `${BaseAPIUri}/users/${id}`
 export const DeleteUserUri = (id: string): string => `${BaseAPIUri}/users/${id}`
 
@@ -21,9 +21,9 @@ export const UnfollowUserUri = (currentUserId: string, followedUserId: string): 
 export const GetFriendsUri = (id: string): string => `${BaseAPIUri}/users/${id}/friends`
 export const RemoveFriendUri = (id: string, friendID: string): string => `${BaseAPIUri}/users/${id}/friends/${friendID}`
 export const GetPendingRequestsUri = (id: string): string => `${BaseAPIUri}/users/${id}/friends/requests`
-export const SendFriendRequestUri = (currentUserId: string, receiverId: string): string => `${BaseAPIUri}/users/${currentUserId}/friends/requests/${receiverId}`
-export const AcceptFriendRequestUri = (currentUserId: string, receiverId: string): string => `${BaseAPIUri}/users/${currentUserId}/friends/requests/${receiverId}`
-export const DeclineFriendRequestUri = (currentUserId: string, receiverId: string): string => `${BaseAPIUri}/users/${currentUserId}/friends/requests/${receiverId}`
+export const SendFriendRequestUri = (currentUserId: string, receiverId: string): string => `${BaseAPIUri}/users/${currentUserId}/friends/add/${receiverId}`
+export const AcceptFriendRequestUri = (currentUserId: string, receiverId: string): string => `${BaseAPIUri}/users/${currentUserId}/friends/accept/${receiverId}`
+export const DeclineFriendRequestUri = (currentUserId: string, receiverId: string): string => `${BaseAPIUri}/users/${currentUserId}/friends/decline/${receiverId}`
 
 export const GetBlockedUsersUri = (id: string): string => `${BaseAPIUri}/users/${id}/blocks`
 export const BlockUserUri = (id: string, userToBlockId: string): string => `${BaseAPIUri}/users/${id}/blocks/${userToBlockId}`
@@ -31,16 +31,16 @@ export const UnblockUserUri = (id: string, blockedUserId: string): string => `${
 
 export const GetUsersFeed = (userId: string, next?: string | null, perPage?: string | null): string =>
     next ?
-        `${BaseAPIUri}/users/${userId}/feed?pageSize=${perPage ?? 10}&next=${next}`
-        : `${BaseAPIUri}/users/${userId}/feed`
+        `${BaseAPIUri}/a/users/${userId}/feed?pageSize=${perPage ?? 10}&next=${next}`
+        : `${BaseAPIUri}/a/users/${userId}/feed`
 
 export const GetUsersPostsUri = (userId: string, next?: string | null, perPage?: string | null): string =>
     next ?
-        `${BaseAPIUri}/users/${userId}/posts?per_page=${perPage ?? 10}&next=${next}`
-        : `${BaseAPIUri}/users/${userId}/posts`
+        `${BaseAPIUri}/users/${userId}/posts?perPage=${perPage ?? 10}&next=${next}`
+        : `${BaseAPIUri}/a/users/${userId}/posts`
 
-export const GetPostUri = (id: string, userId: string): string => `${BaseAPIUri}/posts/${id}?userId=${userId}`
-export const GetReplyUri = (id: string, postId: string, userId: string): string => `${BaseAPIUri}/posts/${postId}/replies/${id}?userId=${userId}`
+export const GetPostUri = (id: string, userId: string): string => `${BaseAPIUri}/a/posts/${id}?userInteractionId=${userId}`
+export const GetReplyUri = (id: string, postId: string, userId: string): string => `${BaseAPIUri}/posts/${postId}/replies/${id}?userInteractionId=${userId}`
 export const CreatePostUri = (userId: string): string => `${BaseAPIUri}/users/${userId}/posts`
 export const UpdatePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`
 export const DeletePostUri = (userId: string, postId: string): string => `${BaseAPIUri}/users/${userId}/posts/${postId}`

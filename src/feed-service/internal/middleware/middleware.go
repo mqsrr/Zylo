@@ -1,31 +1,60 @@
 ﻿package middleware
 
 import (
-	"github.com/go-chi/chi/v5/middleware"
+	"context"
 	"github.com/rs/zerolog/log"
-	"net/http"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"time"
 )
 
-func ZerologMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		rw := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+func getRequestIDFromMetadata(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+	values := md.Get("x-request-id")
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
+func UnaryLoggingInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		if requestID := getRequestIDFromMetadata(ctx); requestID != "" {
+			ctx = context.WithValue(ctx, "x-request-id", requestID)
+		}
 
 		log.Info().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Str("remote_addr", r.RemoteAddr).
-			Msg("request started")
+			Ctx(ctx).
+			Str("method", info.FullMethod).
+			Msg("RPC started")
 
-		next.ServeHTTP(rw, r)
+		startTime := time.Now()
+		resp, err := handler(ctx, req)
+		duration := time.Since(startTime)
+
+		if err != nil {
+			log.Error().
+				Ctx(ctx).
+				Str("method", info.FullMethod).
+				Dur("duration", duration).
+				Err(err).
+				Msg("RPC failed")
+			return resp, err
+		}
 
 		log.Info().
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Int("status", rw.Status()).
-			Str("status_text", http.StatusText(rw.Status())).
-			Dur("duration", time.Since(start)).
-			Msg("request completed")
-	})
+			Ctx(ctx).
+			Str("method", info.FullMethod).
+			Dur("duration", duration).
+			Msg("RPC completed")
+		return resp, err
+	}
 }

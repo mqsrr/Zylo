@@ -3,13 +3,14 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use opentelemetry::trace::TraceContextExt;
+use reqwest::Error as ReqwestError;
 use serde_json::json;
 use std::env::VarError;
-use opentelemetry::trace::TraceContextExt;
 use thiserror::Error;
+use tonic::Status;
 use tracing::{error, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use reqwest::Error as ReqwestError;
 
 pub trait ProblemResponse {
     fn status_code(&self) -> StatusCode;
@@ -80,7 +81,7 @@ impl ProblemResponse for AppError {
             AppError::PostgresError(err) => err.title(),
 
             AppError::NotFound(_) => "Resource Not Found",
-            _ => "Internal Server Error"
+            _ => "Internal Server Error",
         }
     }
 
@@ -90,13 +91,14 @@ impl ProblemResponse for AppError {
 
     fn public_detail(&self) -> &str {
         match self {
-            AppError::ValidationError(err) => &err.public_detail(),
+            AppError::ValidationError(err) => err.public_detail(),
+            AppError::AuthError(err) => err.public_detail(),
             AppError::RedisError(err) => err.public_detail(),
             AppError::PostgresError(err) => err.public_detail(),
             AppError::AmqError(err) => err.public_detail(),
             AppError::NotFound(err) => err,
-            
-            _ => "An unexpected server error occurred. Please try again later."
+
+            _ => "An unexpected server error occurred. Please try again later.",
         }
     }
 }
@@ -108,5 +110,14 @@ impl IntoResponse for AppError {
         }
 
         self.to_response()
+    }
+}
+
+impl From<AppError> for Status {
+    fn from(value: AppError) -> Self {
+        match value.status_code() {
+            StatusCode::NOT_FOUND => Status::not_found(value.public_detail()),
+            _ => Status::internal(value.public_detail()),
+        }
     }
 }

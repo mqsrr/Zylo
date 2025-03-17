@@ -19,8 +19,8 @@ internal sealed class ObservableImageService : IImageService
         _imageService = imageService;
         _activitySource = instrumentation.ActivitySource;
         
-        _requestCount = instrumentation.GetCounterOrCreate("image_service_request_count", "Number of Image service requests");
-        _requestDuration = instrumentation.GetHistogramOrCreate("image_service_request_duration", "Duration of Image service requests");
+        _requestCount = instrumentation.GetCounterOrCreate("s3_requests_total", "Total number of S3 requests");
+        _requestDuration = instrumentation.GetHistogramOrCreate("s3_request_duration_seconds", "Request processing duration");
         
         _tags = new Dictionary<string, object?>
         {
@@ -79,12 +79,7 @@ internal sealed class ObservableImageService : IImageService
             null,
             _tags);
         
-        _requestCount.Add(1, new TagList
-        {
-            { "operation", operation },
-            { "method", methodName }
-        });
-        
+        string status = "success";
         var sw = Stopwatch.StartNew();
         try
         {
@@ -99,16 +94,23 @@ internal sealed class ObservableImageService : IImageService
             activity!.SetStatus(ActivityStatusCode.Error, e.Message);
             activity.SetTag("error.message", e.Message);
             activity.SetTag("error.type", "s3_error");
-
+            status = "error";
+            
             throw;
         }
         finally
         {
-            _requestDuration.Record(sw.ElapsedMilliseconds, new TagList
+            var tagList = new TagList
             {
+                { "service", Instrumentation.ActivitySourceName},
                 { "operation", operation },
                 { "method", methodName },
-            });
+                { "db", "aws-s3" },
+                { "status", status },
+            };
+            
+            _requestCount.Add(1, tagList);
+            _requestDuration.Record(sw.Elapsed.Seconds, tagList);
         }
     }
 }

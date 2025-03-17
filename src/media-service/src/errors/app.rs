@@ -4,11 +4,11 @@ use crate::errors;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
 use opentelemetry::trace::TraceContextExt;
+use serde_json::json;
 use thiserror::Error;
 use reqwest::Error as ReqwestError;
-
+use tonic::Status;
 use tracing::{error, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -99,6 +99,7 @@ impl ProblemResponse for AppError {
     fn public_detail(&self) -> String {
         match self {
             AppError::ValidationError(err) => err.public_detail(),
+            AppError::AuthError(err) => err.public_detail(),
             AppError::RedisError(err) => err.public_detail(),
             AppError::MongoError(err) => err.public_detail(),
             AppError::AmqError(err) => err.public_detail(),
@@ -106,7 +107,7 @@ impl ProblemResponse for AppError {
             AppError::BadRequest(err) => err.clone(),
             AppError::NotFound(err) => err.clone(),
 
-            _ => self.public_detail()
+            _ => String::from("An unexpected server error occurred. Please try again later.")
         }
     }
 }
@@ -118,5 +119,13 @@ impl IntoResponse for AppError {
         }
 
         self.to_response()
+    }
+}
+
+impl From<AppError> for Status {
+    fn from(value: AppError) -> Self {
+        match value.status_code() {             
+            StatusCode::NOT_FOUND => Status::not_found(value.public_detail()),
+            _ => Status::internal(value.public_detail()), } 
     }
 }

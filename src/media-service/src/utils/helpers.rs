@@ -1,3 +1,4 @@
+use std::fs;
 use async_trait::async_trait;
 use mongodb::bson::doc;
 use mongodb::Database;
@@ -22,4 +23,17 @@ pub async fn init_db(config: &settings::Database) -> Database {
         Ok(_) => database,
         Err(_) => panic!("Failed to ping"),
     }
+}
+
+pub fn get_container_id() -> Option<String> {
+    if let Ok(cgroup) = fs::read_to_string("/proc/self/cgroup") {
+        for line in cgroup.lines() {
+            if let Some(id) = line.split('/').last() {
+                if id.len() >= 12 {
+                    return Some(id.to_string());
+                }
+            }
+        }
+    }
+    None
 }

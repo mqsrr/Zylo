@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RelationshipService_GetUserRelationships_FullMethodName  = "/RelationshipService/GetUserRelationships"
-	RelationshipService_GetBatchRelationships_FullMethodName = "/RelationshipService/GetBatchRelationships"
+	RelationshipService_GetUserRelationships_FullMethodName  = "/relationship_service.RelationshipService/GetUserRelationships"
+	RelationshipService_GetBatchRelationships_FullMethodName = "/relationship_service.RelationshipService/GetBatchRelationships"
 )
 
 // RelationshipServiceClient is the client API for RelationshipService service.
@@ -142,7 +142,7 @@ func _RelationshipService_GetBatchRelationships_Handler(srv interface{}, ctx con
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RelationshipService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "RelationshipService",
+	ServiceName: "relationship_service.RelationshipService",
 	HandlerType: (*RelationshipServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

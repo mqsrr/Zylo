@@ -2,18 +2,47 @@ package api
 
 import (
 	"context"
+	"github.com/mqsrr/zylo/social-graph/internal/config"
+	"github.com/mqsrr/zylo/social-graph/internal/logger"
+	zerolog "github.com/rs/zerolog/log"
+	"go.opentelemetry.io/contrib/bridges/otelzerolog"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 )
 
-func InitTracer(ctx context.Context) (*trace.TracerProvider, error) {
+func InitLogger(ctx context.Context, cfg *config.OtelCollector) (*log.LoggerProvider, error) {
+	exporter, err := otlploggrpc.New(ctx,
+		otlploggrpc.WithEndpoint(cfg.Address),
+		otlploggrpc.WithInsecure())
+
+	if err != nil {
+		return nil, err
+	}
+	processor := log.NewBatchProcessor(exporter)
+	provider := log.NewLoggerProvider(log.WithProcessor(processor), log.WithResource(resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceNameKey.String("social-graph"),
+	)))
+
+	hook := otelzerolog.NewHook("social-graph", otelzerolog.WithLoggerProvider(provider))
+
+	zerolog.Logger = zerolog.Logger.Hook(hook)
+	global.SetLoggerProvider(provider)
+	return provider, nil
+}
+
+func InitTracer(ctx context.Context, cfg *config.OtelCollector) (*trace.TracerProvider, error) {
 	exporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint("localhost:4317"),
+		otlptracegrpc.WithEndpoint(cfg.Address),
 		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
@@ -29,12 +58,14 @@ func InitTracer(ctx context.Context) (*trace.TracerProvider, error) {
 	)
 
 	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	zerolog.Logger = zerolog.Logger.Hook(logger.TracingHook{})
 	return tp, nil
 }
 
-func InitMeter(ctx context.Context) (*metric.MeterProvider, error) {
+func InitMeter(ctx context.Context, cfg *config.OtelCollector) (*metric.MeterProvider, error) {
 	exporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithEndpoint("localhost:4317"),
+		otlpmetricgrpc.WithEndpoint(cfg.Address),
 		otlpmetricgrpc.WithInsecure(),
 	)
 	if err != nil {
@@ -50,7 +81,6 @@ func InitMeter(ctx context.Context) (*metric.MeterProvider, error) {
 			semconv.ServiceNameKey.String("social-graph"),
 		)),
 	)
-
 	otel.SetMeterProvider(mp)
 	return mp, nil
 }

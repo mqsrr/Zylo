@@ -1,10 +1,25 @@
 ﻿use crate::errors;
 use crate::models::reply::{PostInteractionResponse, ReplyResponse};
 use std::collections::HashMap;
+use std::fs;
 use ulid::Ulid;
 
 pub trait Validate {
     fn validate(&self) -> Result<(), errors::ValidationError>;
+}
+
+
+pub fn get_container_id() -> Option<String> {
+    if let Ok(cgroup) = fs::read_to_string("/proc/self/cgroup") {
+        for line in cgroup.lines() {
+            if let Some(id) = line.split('/').last() {
+                if id.len() >= 12 {
+                    return Some(id.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 

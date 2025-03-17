@@ -27,7 +27,7 @@ func (s *Server) handleUserCreatedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.CreateUser(context.Background(), message.ID)
+	return s.userRepository.CreateUser(context.Background(), message.ID, message.CreatedAt)
 }
 
 func (s *Server) handleUserDeletedMessage(delivery amqp.Delivery) error {
@@ -36,5 +36,5 @@ func (s *Server) handleUserDeletedMessage(delivery amqp.Delivery) error {
 		return err
 	}
 
-	return s.storage.DeleteUser(context.Background(), message.ID)
+	return s.userRepository.DeleteUser(context.Background(), message.ID)
 }

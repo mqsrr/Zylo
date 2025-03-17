@@ -1,9 +1,7 @@
 ﻿export interface AuthenticationResult {
-    success: boolean;
-    id?: string;
-    emailVerified: boolean;
-    accessToken?: AccessToken;
-    error?: string;
+    id: string;
+    emailVerified: boolean,
+    accessToken: AccessToken;
 }
 
 export interface AccessToken {
