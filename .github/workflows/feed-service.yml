@@ -40,7 +40,7 @@ jobs:
         run: go mod tidy
 
       - name: Build the project
-        run: go build -o build/feed-service ./...
+        run: go build ./cmd/feed-service
 
   security-scan:
     needs: build
