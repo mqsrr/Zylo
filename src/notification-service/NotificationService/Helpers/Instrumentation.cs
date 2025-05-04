@@ -6,9 +6,7 @@ namespace NotificationService.Helpers;
 
 public sealed class Instrumentation : IDisposable
 {
-    internal const string ActivitySourceName = "user-management";
-    internal const string ActivitySourceVersion = "1.0.0";
-    internal const string MeterName = "UserManagementAPI";
+    internal const string MeterName = "NotificationServiceAPI";
 
     public Instrumentation(IMeterFactory factory, ActivitySource activitySource)
     {

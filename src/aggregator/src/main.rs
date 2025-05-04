@@ -36,12 +36,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let post_client =
         PostServiceClient::connect(config.external_grpc_servers.media_service.clone()).await?;
+
     let user_client =
         UserProfileServiceClient::connect(config.external_grpc_servers.user_management.clone())
             .await?;
+
     let relationship_client =
         RelationshipServiceClient::connect(config.external_grpc_servers.social_graph.clone())
             .await?;
+
     let reply_client = ReplyServiceClient::connect(
         config
             .external_grpc_servers

@@ -1,18 +1,17 @@
-use crate::app::{init_logs, init_metrics, init_tracing, init_traces, run_app};
+use crate::app::{init_logs, init_metrics, init_traces, init_tracing, run_app};
 use crate::decorators::cache_service_decorator::DecoratedCacheService;
 use crate::decorators::grpc_server_decorator::DecoratedGrpcServer;
 use crate::decorators::posts_repo_decorator::DecoratedPostsRepository;
 use crate::decorators::reply_repo_decorator::DecoratedReplyRepository;
 use crate::decorators::users_repo_decorator::DecoratedUsersRepository;
 use crate::models::app_state::AppState;
+use crate::repositories::init_db;
 use crate::repositories::interaction_repo::RedisInteractionRepository;
 use crate::services::amq_client::{AmqClient, RabbitMqClient};
 use crate::services::post_interactions_service::PostInteractionsServiceImpl;
 use crate::services::reply_service::ReplyServiceImpl;
-use crate::settings::{AppConfig, Database};
+use crate::settings::AppConfig;
 use dotenv::dotenv;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{migrate, PgPool};
 use std::sync::Arc;
 
 mod app;
@@ -26,17 +25,6 @@ mod services;
 mod settings;
 mod utils;
 
-async fn init_db(config: &Database) -> Result<PgPool, errors::DatabaseError> {
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&config.uri)
-        .await
-        .map_err(|e| errors::DatabaseError::PoolCreationError(e.to_string()))?;
-
-    migrate!().run(&pool).await?;
-    Ok(pool)
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
@@ -48,7 +36,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing(&logger_provider, &trace_provider);
 
     let pg_pool = init_db(&config.database).await?;
-
     let reply_repo = Arc::new(
         DecoratedReplyRepository::new(pg_pool.clone())
             .observable()
@@ -74,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let interaction_repo = Arc::new(RedisInteractionRepository::new(cache_service.clone()));
-
+    
     let reply_service = Arc::new(ReplyServiceImpl::new(
         reply_repo.clone(),
         interaction_repo.clone(),
@@ -108,7 +95,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     run_app(app, grpc_server).await?;
-
     trace_provider.shutdown()?;
     meter_provider.shutdown()?;
     logger_provider.shutdown()?;

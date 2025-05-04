@@ -8,6 +8,7 @@ using NotificationService.Factories;
 using NotificationService.Factories.Abstractions;
 using NotificationService.Helpers;
 using NotificationService.HostedServices;
+using NotificationService.Models;
 using NotificationService.Services;
 using NotificationService.Services.Abstractions;
 using NotificationService.Settings;
@@ -49,7 +50,6 @@ internal static class ServiceCollectionExtensions
                         options.EnrichWithHttpResponse = (activity, httpRequest) => activity.SetTag("http.request.id", httpRequest.HttpContext.TraceIdentifier);
                     })
                     .AddHttpClientInstrumentation()
-                    .AddAWSInstrumentation()
                     .AddOtlpExporter(options => options.Endpoint = new Uri(collectorAddress));
             });
 
@@ -63,7 +63,8 @@ internal static class ServiceCollectionExtensions
         {
             Formatting = Formatting.Indented,
             TypeNameHandling = TypeNameHandling.None,
-            ContractResolver = new CamelCasePropertyNamesContractResolver()
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            Converters = [new UserIdConverter()]
         };
 
         return services;
@@ -151,12 +152,27 @@ internal static class ServiceCollectionExtensions
             {
                 var builder = new RabbitMqBuilder();
                 configure(builder);
-                settings.Publishers = builder.Build();
+
+                var busSettings = builder.Build();
+                settings.Publishers = busSettings.Publishers;
+                settings.Consumers = busSettings.Consumers;
             });
 
-        services.AddScoped(typeof(IConsumer<>), typeof(RabbitMqConsumer<>));
-        services.AddHostedService<RabbitMqBusHostedService>();
+        var consumerType = typeof(IConsumer<>);
+        var consumerMap = Assembly.GetExecutingAssembly()
+            .GetTypes()
+            .Where(t => t is { IsInterface: false, IsAbstract: false })
+            .SelectMany(t => t.GetInterfaces()
+                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == consumerType)
+                .Select(i => new { Interface = i, Implementation = t }))
+            .ToDictionary(x => x.Interface, x => x.Implementation);
 
+        foreach (var (interfaceType, implementationType) in consumerMap)
+        {
+            services.AddScoped(interfaceType, implementationType);
+        }
+
+        services.AddHostedService<RabbitMqBusHostedService>();
         return services;
     }
 }

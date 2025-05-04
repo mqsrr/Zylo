@@ -1,4 +1,3 @@
-use crate::auth::authorization_middleware;
 use crate::models::app_state::AppState;
 use crate::routes;
 use crate::services::feed_service::FeedService;
@@ -40,7 +39,7 @@ use tracing_opentelemetry::{OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
-
+use crate::auth::authorization_middleware;
 
 #[derive(Clone)]
 pub struct ServerMetrics {

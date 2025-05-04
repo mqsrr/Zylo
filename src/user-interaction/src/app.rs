@@ -1,7 +1,7 @@
 use crate::auth::authorization_middleware;
 use crate::models::app_state::AppState;
 use crate::repositories::interaction_repo::InteractionRepository;
-use crate::routes;
+use crate::{routes};
 use crate::services::amq_client::AmqClient;
 use crate::services::grpc_server::reply_server::reply_service_server::{
     ReplyService as GrpcReplyServer, ReplyServiceServer as GrpcReplyServiceServer,
@@ -9,6 +9,7 @@ use crate::services::grpc_server::reply_server::reply_service_server::{
 use crate::services::post_interactions_service::PostInteractionsService;
 use crate::services::reply_service::ReplyService;
 use crate::utils::constants::{OTEL_SERVICE_NAME, REQUEST_ID_HEADER};
+use crate::utils::helpers::get_container_id;
 use axum::extract::{MatchedPath, Request as AxRequest, State};
 use axum::http::{header, HeaderName, Request};
 use axum::middleware;
@@ -46,14 +47,15 @@ use tracing_opentelemetry::{OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
-use crate::utils::helpers::get_container_id;
+
+
 
 #[derive(Clone)]
 pub struct ServerMetrics {
     pub request_counter: Counter<u64>,
     pub request_latency: Histogram<f64>,
     pub active_requests: Arc<AtomicU64>,
-    pub attributes: Vec<KeyValue>
+    pub attributes: Vec<KeyValue>,
 }
 
 impl ServerMetrics {
@@ -97,7 +99,7 @@ impl ServerMetrics {
             request_counter,
             request_latency,
             active_requests,
-            attributes
+            attributes,
         }
     }
 }
@@ -184,6 +186,7 @@ async fn track_metrics(
     } else {
         req.uri().path().to_owned()
     };
+
     let method = req.method().clone();
     let start = Instant::now();
     metrics.active_requests.fetch_add(1, Ordering::Relaxed);
@@ -222,11 +225,11 @@ where
         .layer(
             trace::TraceLayer::new_for_http()
                 .make_span_with({
-                    let server_port = app_state.config.server.port.to_string();
+                    let server_port = app_state.config.global.server_port.to_string();
                     move |request: &Request<_>| {
                         let request_id = request.headers().get(REQUEST_ID_HEADER);
                         let request_uri = request.uri();
-                        let request_path = request_uri.path();
+                        let request_path = request.extensions().get::<MatchedPath>().unwrap().as_str();
                         let method = request.method().to_string();
 
                         let parent_cx = global::get_text_map_propagator(|propagator| {
@@ -240,7 +243,6 @@ where
                             "http.request.method_original" = &method,
                             "server.address" = "0.0.0.0",
                             "server.port" = server_port,
-                            "url.full" = request_uri.to_string(),
                             "otel.kind" = "server",
                             "http.request.id" = field::Empty,
                             "url.query" = field::Empty,
@@ -298,7 +300,7 @@ where
     RS: ReplyService + 'static,
     PS: PostInteractionsService + 'static,
 {
-    let axum_address = SocketAddr::from(([0, 0, 0, 0], app_state.config.server.port));
+    let axum_address = SocketAddr::from(([0, 0, 0, 0], app_state.config.global.server_port));
     let axum_app = create_router(app_state.clone()).await;
 
     let grpc_address = app_state.config.grpc_server.address.parse()?;
@@ -315,11 +317,10 @@ where
                         .split_once(":")
                         .map(|(address, port)| (String::from(address), String::from(port)))
                         .unwrap();
-                    
+
                     move |request: &Request<_>| {
                         let request_id = request.headers().get(REQUEST_ID_HEADER);
-                        let request_uri = request.uri();
-                        let request_path = request_uri.path();
+                        let request_path = request.uri().path();
                         let http_method = request.method().to_string();
 
                         let (service, method) = request_path

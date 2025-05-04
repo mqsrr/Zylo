@@ -1,3 +1,0 @@
-{"Timestamp":"2024-11-19T00:07:32.2764809+01:00","Level":"Information","MessageTemplate":"Application is shutting down...","Properties":{"SourceContext":"Microsoft.Hosting.Lifetime"}}
-{"Timestamp":"2024-11-19T00:07:32.2919708+01:00","Level":"Information","MessageTemplate":"Stopping RabbitMQ consumers","Properties":{"SourceContext":"NotificationService.HostedServices.RabbitMqConsumerHostedService"}}
-{"Timestamp":"2024-11-19T00:07:32.3744265+01:00","Level":"Information","MessageTemplate":"All consumers are stopped","Properties":{"SourceContext":"NotificationService.HostedServices.RabbitMqConsumerHostedService"}}

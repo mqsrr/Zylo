@@ -1,10 +1,12 @@
-﻿using NotificationService.Settings;
+﻿using NotificationService.Services.Abstractions;
+using NotificationService.Settings;
 
 namespace NotificationService.Builders;
 
 public sealed class RabbitMqBuilder
 {
     private readonly List<PublisherSettings> _publisherSettings = [];
+    private readonly List<ConsumerSettings> _consumerSettings = [];
 
     public RabbitMqBuilder AddPublisher<TEntity>(string exchangeName, string routingKey) where TEntity : class
     {
@@ -18,5 +20,29 @@ public sealed class RabbitMqBuilder
         return this;
     }
 
-    internal List<PublisherSettings> Build() => _publisherSettings;
+    public RabbitMqBuilder AddConsumer<TMessage, TConsumer>(
+        string exchangeName,
+        string queueName,
+        string routingKey) where TMessage : class where TConsumer : IConsumer<TMessage>
+    {
+        _consumerSettings.Add(new ConsumerSettings
+        {
+            MessageType = typeof(TMessage),
+            ExchangeName = exchangeName,
+            QueueName = queueName,
+            RoutingKey = routingKey,
+            ConsumerType = typeof(TConsumer),
+        });
+
+        return this;
+    }
+
+    public RabbitMqBusSettings Build()
+    {
+        return new RabbitMqBusSettings
+        {
+            Publishers = _publisherSettings,
+            Consumers = _consumerSettings
+        };
+    }
 }

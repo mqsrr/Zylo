@@ -1,19 +1,11 @@
-use std::fs;
 use crate::services::key_vault::KeyVault;
-use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, MONGO_URL_SECRET, OTEL_COLLECTOR_ADDR, RABBITMQ_URL_SECRET, REDIS_EXPIRE, REDIS_URL_SECRET, S3_BUCKET_NAME, S3_BUCKET_PRESIGNED_URL_EXPIRE_TIME};
+use crate::utils::constants::{GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, MONGO_URL_SECRET, OTEL_COLLECTOR_ADDR, RABBITMQ_URL_SECRET, REDIS_EXPIRE, REDIS_URL_SECRET, S3_BUCKET_NAME, S3_BUCKET_PRESIGNED_URL_EXPIRE_TIME};
 use serde::Deserialize;
+use std::fs;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Server {
-    pub port: u16,
-}
-
-impl Server {
-    async fn from_key_vault(key_vault: &KeyVault) -> Self {
-        Self{
-            port: key_vault.get_secret(EXPOSED_PORT).await.unwrap().parse().unwrap(),
-        }
-    }
+pub struct Global {
+    pub server_port: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -123,7 +115,7 @@ impl OtelCollector {
 }
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
-    pub server: Server,
+    pub global: Global,
     pub database: Database,
     pub redis: Redis,
     pub auth: Auth,
@@ -153,8 +145,12 @@ impl AppConfig {
     }
 
     async fn from_key_vault(key_vault: &KeyVault) -> Self {
+        let global = Global{
+            server_port: std::env::var("SERVER_PORT").unwrap_or_default().parse::<u16>().unwrap_or(8080),
+        };
+
         Self {
-            server: Server::from_key_vault(key_vault).await,
+            global,
             database: Database::from_key_vault(key_vault).await,
             s3_config: S3Settings::from_key_vault(key_vault).await,
             redis: Redis::from_key_vault(key_vault).await,

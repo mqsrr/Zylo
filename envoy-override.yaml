@@ -44,7 +44,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             safe_regex:
                               regex: "^/users/([0-9A-Z]{26})$"
@@ -58,7 +58,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             safe_regex:
                               regex: "^/users/([0-9A-Z]{26})/(likes|views)(/.*)?$"
@@ -72,7 +72,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             safe_regex:
                               regex: "^/posts/([0-9A-Z]{26})/replies(/.*)?$"
@@ -86,7 +86,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             prefix: "/posts"
                           route:
@@ -96,7 +96,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             safe_regex:
                               regex: "^/users/([0-9A-Z]{26})/posts(/.*)?$"
@@ -110,7 +110,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             safe_regex:
                               regex: "^/users/([0-9A-Z]{26})/(relationships|blocks|followers|friends)(/.*)?$"
@@ -124,7 +124,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                         - match:
                             prefix: "/a"
                           route:
@@ -134,7 +134,7 @@ static_resources:
                             retry_policy:
                               retry_on: "5xx,connect-failure,refused-stream"
                               num_retries: 3
-                              per_try_timeout: 2s
+                              per_try_timeout: 5s
                 http_filters:
                   - name: envoy.filters.http.local_ratelimit
                     typed_config:
@@ -150,7 +150,7 @@ static_resources:
 
   clusters:
     - name: otel-collector
-      connect_timeout: 0.5s
+      connect_timeout: 5s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
       load_assignment:
@@ -164,7 +164,7 @@ static_resources:
                       port_value: 4317
 
     - name: aggregator
-      connect_timeout: 3.0s
+      connect_timeout: 5.0s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
       circuit_breakers:
@@ -190,10 +190,9 @@ static_resources:
                       port_value: 8080
 
     - name: user-interaction
-      connect_timeout: 0.5s
+      connect_timeout: 5.0s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
-
       circuit_breakers:
         thresholds:
           - priority: DEFAULT
@@ -217,7 +216,7 @@ static_resources:
                       port_value: 8080
 
     - name: media-service
-      connect_timeout: 0.5s
+      connect_timeout: 5.0s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
 
@@ -244,7 +243,7 @@ static_resources:
                       port_value: 8080
 
     - name: social-graph
-      connect_timeout: 0.5s
+      connect_timeout: 5.0s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
 
@@ -271,15 +270,15 @@ static_resources:
                       port_value: 8080
 
     - name: user-management
-      connect_timeout: 2.0s
+      connect_timeout: 5.0s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
       circuit_breakers:
         thresholds:
           - priority: DEFAULT
-            max_connections: 50
-            max_pending_requests: 50
-            max_requests: 50
+            max_connections: 100
+            max_pending_requests: 100
+            max_requests: 100
             max_retries: 3
       outlier_detection:
         consecutive_5xx: 3

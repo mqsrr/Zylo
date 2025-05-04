@@ -36,7 +36,11 @@ internal static class ServiceCollectionExtensions
             .WithMetrics(providerBuilder =>
             {
                 providerBuilder.AddRuntimeInstrumentation()
-                    .AddMeter(Instrumentation.MeterName)
+                    .AddHttpClientInstrumentation()
+                    .AddAWSInstrumentation()
+                    .AddProcessInstrumentation()
+                    .AddAspNetCoreInstrumentation()
+                    .AddMeter(Instrumentation.MeterName, "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Net.Http")
                     .AddView("http_server_request_duration_seconds", boundaries)
                     .AddView("db_query_duration_seconds", boundaries)
                     .AddView("grpc_server_request_duration_seconds", boundaries)

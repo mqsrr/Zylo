@@ -223,11 +223,11 @@ where
         .layer(
             trace::TraceLayer::new_for_http()
                 .make_span_with({
-                    let server_port = app_state.config.server.port.to_string();
+                    let server_port = app_state.config.global.server_port.to_string();
                     move |request: &Request<_>| {
                         let request_id = request.headers().get(REQUEST_ID_HEADER);
                         let request_uri = request.uri();
-                        let request_path = request_uri.path();
+                        let request_path = request.extensions().get::<MatchedPath>().unwrap().as_str();
                         let method = request.method().to_string();
 
                         let parent_cx = global::get_text_map_propagator(|propagator| {
@@ -298,7 +298,7 @@ where
     C: CacheService + 'static,
     A: AmqClient + 'static,
 {
-    let axum_address = SocketAddr::from(([0, 0, 0, 0], app_state.config.server.port));
+    let axum_address = SocketAddr::from(([0, 0, 0, 0], app_state.config.global.server_port));
     let axum_app = create_router(app_state.clone()).await;
 
     let grpc_address = app_state.config.grpc_server.address.parse()?;

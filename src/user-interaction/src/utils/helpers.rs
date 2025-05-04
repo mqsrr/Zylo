@@ -8,7 +8,6 @@ pub trait Validate {
     fn validate(&self) -> Result<(), errors::ValidationError>;
 }
 
-
 pub fn get_container_id() -> Option<String> {
     if let Ok(cgroup) = fs::read_to_string("/proc/self/cgroup") {
         for line in cgroup.lines() {
@@ -21,7 +20,6 @@ pub fn get_container_id() -> Option<String> {
     }
     None
 }
-
 
 pub struct PostInteractionResponseBuilder {
     post_id: Ulid,

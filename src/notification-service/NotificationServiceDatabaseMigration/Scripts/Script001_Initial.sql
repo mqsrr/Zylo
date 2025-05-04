@@ -1,0 +1,12 @@
+﻿CREATE TABLE users(
+    id BYTEA PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    email_iv TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE notifications(
+    id BYTEA PRIMARY KEY,
+    user_id BYTEA NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message VARCHAR(500) NOT NULL,
+    is_seen BOOLEAN NOT NULL DEFAULT FALSE
+)

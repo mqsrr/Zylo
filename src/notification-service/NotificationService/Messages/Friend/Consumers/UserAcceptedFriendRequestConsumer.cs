@@ -1,59 +1,23 @@
-﻿using System.Text;
-using Microsoft.AspNetCore.SignalR;
-using Newtonsoft.Json;
-using NotificationService.Factories.Abstractions;
+﻿using Microsoft.AspNetCore.SignalR;
 using NotificationService.Hubs;
 using NotificationService.Services.Abstractions;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
 
 namespace NotificationService.Messages.Friend.Consumers;
 
 internal sealed class UserAcceptedFriendRequestConsumer : IConsumer<UserAcceptedFriendRequest>
 {
-    private readonly IRabbitMqConnectionFactory _connectionFactory;
     private readonly IHubContext<NotificationHub, INotificationHub> _hubContext;
-    private IChannel? _channel;
+    private readonly ILogger<UserAcceptedFriendRequestConsumer> _logger;
 
-    public UserAcceptedFriendRequestConsumer(IRabbitMqConnectionFactory connectionFactory, IHubContext<NotificationHub, INotificationHub> hubContext)
+    public UserAcceptedFriendRequestConsumer(IHubContext<NotificationHub, INotificationHub> hubContext, ILogger<UserAcceptedFriendRequestConsumer> logger)
     {
-        _connectionFactory = connectionFactory;
         _hubContext = hubContext;
+        _logger = logger;
     }
 
     public async Task ConsumeAsync(UserAcceptedFriendRequest message, CancellationToken cancellationToken)
     {
-        var connection = await _connectionFactory.GetConnectionAsync(cancellationToken);
-        _channel = await  connection.CreateChannelAsync(null, cancellationToken);
-
-        await _channel.ExchangeDeclareAsync("user-exchange", "direct", true, false, cancellationToken: cancellationToken);
-        var queueDeclare= await _channel.QueueDeclareAsync("user-accepted-friend-request-notification-service", true, false, false, cancellationToken: cancellationToken);
-        
-        await _channel.QueueBindAsync(queueDeclare.QueueName, "user-exchange", "user.add.friend", cancellationToken: cancellationToken);
-        
-        var consumer = new AsyncEventingBasicConsumer(_channel);
-        consumer.ReceivedAsync += async (_, ea) =>
-        {
-            var acceptedFriendRequest = JsonConvert.DeserializeObject<UserAcceptedFriendRequest>(Encoding.UTF8.GetString(ea.Body.ToArray()));
-            if (acceptedFriendRequest is null)
-            {
-                await _channel.BasicNackAsync(ea.DeliveryTag, false, false, cancellationToken);
-                return;
-            }
-
-            await _hubContext.Clients.Group(acceptedFriendRequest.ReceiverId).FriendRequestAccepted(acceptedFriendRequest.Id);
-            await _channel.BasicAckAsync(ea.DeliveryTag, false, ea.CancellationToken);
-        };
-
-        await _channel.BasicConsumeAsync(queueDeclare.QueueName,false, consumer, cancellationToken);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_channel is not null)
-        {
-            await _channel.DisposeAsync();
-        }
-        await _connectionFactory.DisposeAsync();
+        _logger.LogInformation("User {UserId} has accepted friend request {ReceiverId}", message.Id, message.ReceiverId);
+        await _hubContext.Clients.Group(message.ReceiverId).FriendRequestAccepted(message.Id);
     }
 }

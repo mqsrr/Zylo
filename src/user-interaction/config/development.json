@@ -1,8 +1,8 @@
 {
   "environment": "development",
 
-  "server": {
-    "port": 8080
+  "global": {
+    "server_port": 8080
   },
   "database": {
       "uri": "postgresql://testUser:Pass1234!@localhost:5433/testDb"
@@ -21,7 +21,7 @@
     "uri": "amqp://localhost"
   },
   "grpc_server": {
-    "port": 50051
+    "address": "0.0.0.0:50051"
   },
   "otel_collector":{
     "address": "http://localhost:4317"

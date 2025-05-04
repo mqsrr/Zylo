@@ -3,7 +3,6 @@ pub const REDIS_CONNECTION_STRING: &str= "UserInteractions-Redis--ConnectionStri
 pub const REDIS_EXPIRE: &str= "Zylo-Redis--Expire";
 
 pub const GRPC_SERVER_ADDR: &str = "UserInteraction-gRPC--ServerAddr";
-pub const EXPOSED_PORT: &str= "UserInteraction-API--ExposedPort";
 
 pub const OTEL_SERVICE_NAME: &str = "user-interaction";
 pub const OTEL_COLLECTOR_ADDR: &str = "Zylo-OTEL--CollectorAddress";

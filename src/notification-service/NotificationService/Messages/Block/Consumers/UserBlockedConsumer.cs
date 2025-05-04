@@ -1,60 +1,24 @@
-﻿using System.Text;
-using Microsoft.AspNetCore.SignalR;
-using Newtonsoft.Json;
-using NotificationService.Factories.Abstractions;
+﻿using Microsoft.AspNetCore.SignalR;
 using NotificationService.Hubs;
 using NotificationService.Services.Abstractions;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
 
 namespace NotificationService.Messages.Block.Consumers;
 
-internal sealed class UserBlockedConsumer : IConsumer
+internal sealed class UserBlockedConsumer : IConsumer<UserBlocked>
 {
-    private readonly IRabbitMqConnectionFactory _connectionFactory;
     private readonly IHubContext<NotificationHub, INotificationHub> _hubContext;
-    private IChannel? _channel;
+    private readonly ILogger<UserBlockedConsumer> _logger;
 
-    public UserBlockedConsumer(IRabbitMqConnectionFactory connectionFactory, IHubContext<NotificationHub, INotificationHub> hubContext)
+    public UserBlockedConsumer(IHubContext<NotificationHub, INotificationHub> hubContext, ILogger<UserBlockedConsumer> logger)
     {
-        _connectionFactory = connectionFactory;
         _hubContext = hubContext;
+        _logger = logger;
     }
 
-    public async Task ConsumeAsync(CancellationToken cancellationToken)
+
+    public async Task ConsumeAsync(UserBlocked message, CancellationToken cancellationToken)
     {
-        var connection = await _connectionFactory.GetConnectionAsync(cancellationToken);
-        _channel = await  connection.CreateChannelAsync(null, cancellationToken);
-
-        await _channel.ExchangeDeclareAsync("user-exchange", "direct", true, false, cancellationToken: cancellationToken);
-        var queueDeclare= await _channel.QueueDeclareAsync("user-blocked-notification-service", true, false, false, cancellationToken: cancellationToken);
-        
-        await _channel.QueueBindAsync(queueDeclare.QueueName, "user-exchange", "user.blocked", cancellationToken: cancellationToken);
-        
-        var consumer = new AsyncEventingBasicConsumer(_channel);
-        consumer.ReceivedAsync += async (_, ea) =>
-        {
-            var userBlocked = JsonConvert.DeserializeObject<UserBlocked>(Encoding.UTF8.GetString(ea.Body.ToArray()));
-            if (userBlocked is null)
-            {
-                await _channel.BasicNackAsync(ea.DeliveryTag, false, false, cancellationToken);
-                return;
-            }
-
-            await _hubContext.Clients.Group(userBlocked.BlockedId).UserBlocked(userBlocked.Id);
-            await _channel.BasicAckAsync(ea.DeliveryTag, false, ea.CancellationToken);
-        };
-
-        await _channel.BasicConsumeAsync(queueDeclare.QueueName,false, consumer, cancellationToken);
+        _logger.LogInformation("User {} has blocked {} user", message.Id, message.BlockedId);
+        await _hubContext.Clients.Group(message.BlockedId).UserBlocked(message.Id);
     }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_channel is not null)
-        {
-            await _channel.DisposeAsync();
-        }
-        await _connectionFactory.DisposeAsync();
-    }
-
 }

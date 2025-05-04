@@ -64,17 +64,25 @@
               "target": "Package",
               "version": "[2.1.66, )"
             },
+            "FluentEmail.Liquid": {
+              "target": "Package",
+              "version": "[3.0.2, )"
+            },
+            "FluentEmail.Mailgun": {
+              "target": "Package",
+              "version": "[3.0.2, )"
+            },
             "Microsoft.AspNetCore.Authentication.JwtBearer": {
               "target": "Package",
-              "version": "[9.0.2, )"
+              "version": "[9.0.4, )"
             },
             "Microsoft.Azure.SignalR": {
               "target": "Package",
-              "version": "[1.30.2, )"
+              "version": "[1.30.3, )"
             },
             "NRedisStack": {
               "target": "Package",
-              "version": "[0.13.2, )"
+              "version": "[1.0.0, )"
             },
             "Newtonsoft.Json": {
               "target": "Package",
@@ -86,15 +94,11 @@
             },
             "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
               "target": "Package",
-              "version": "[1.11.2, )"
+              "version": "[1.12.0, )"
             },
             "OpenTelemetry.Extensions.Hosting": {
               "target": "Package",
-              "version": "[1.11.2, )"
-            },
-            "OpenTelemetry.Instrumentation.AWS": {
-              "target": "Package",
-              "version": "[1.11.1, )"
+              "version": "[1.12.0, )"
             },
             "OpenTelemetry.Instrumentation.AspNetCore": {
               "target": "Package",
@@ -110,7 +114,7 @@
             },
             "RabbitMQ.Client": {
               "target": "Package",
-              "version": "[7.1.1, )"
+              "version": "[7.1.2, )"
             },
             "Serilog.AspNetCore": {
               "target": "Package",

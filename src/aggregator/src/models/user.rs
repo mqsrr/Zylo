@@ -72,7 +72,7 @@ pub struct UserRelationshipData {
 impl UserRelationshipData {
     pub fn from(value: RelationshipData, user_map: &HashMap<String, Arc<UserSummary>>) -> Self {
         Self {
-            users: value.ids.iter().map(|id| user_map.get(id).unwrap().clone()).collect::<Vec<_>>(),
+            users: value.ids.iter().map(|id| user_map.get(id).unwrap_or(&Arc::new(UserSummary::default())).clone()).collect::<Vec<_>>(),
             created_at: value.created_at.into_iter().filter_map(|(id, timestamp)| {
                 google_timestamp_to_string(timestamp).map(|dt_string| (id, dt_string))
             })

@@ -9,6 +9,9 @@ pub enum AuthError {
 
     #[error("Invalid bearer token")]
     InvalidToken,
+
+    #[error("Email is not confirmed")]
+    UnverifiedEmail,
 }
 
 impl ProblemResponse for AuthError {
@@ -28,6 +31,7 @@ impl ProblemResponse for AuthError {
         match self {
             AuthError::TokenNotFound => "Bearer token not found",
             AuthError::InvalidToken => "Invalid token",
+            AuthError::UnverifiedEmail => "Email is not confirmed",
         }
     }
 }

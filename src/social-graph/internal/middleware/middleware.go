@@ -28,20 +28,17 @@ func ErrHandler(h ErrHandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var errResponse *types.ProblemResponse
 		rw := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-
 		err := h(rw, r)
 		if err != nil {
-			defer func() {
-				span := trace.SpanFromContext(r.Context())
-				span.SetStatus(codes.Error, err.Error())
-				span.RecordError(err)
-
-				span.SetAttributes(semconv.HTTPResponseStatusCode(rw.Status()))
-			}()
 
 			w.Header().Add("Content-Type", "application/json")
 			if errors.As(err, &errResponse) {
 				if errResponse.StatusCode == http.StatusInternalServerError {
+					span := trace.SpanFromContext(r.Context())
+					span.SetStatus(codes.Error, err.Error())
+					span.RecordError(err)
+
+					span.SetAttributes(semconv.HTTPResponseStatusCode(rw.Status()))
 					log.Error().Err(err).Msg("")
 				}
 
@@ -75,7 +72,7 @@ func OtelMiddleware(meterProvider metric.MeterProvider) func(http.Handler) http.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			methodName := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
+			methodName := fmt.Sprintf("%s %s", r.Method, getRoutePattern(r))
 
 			if requestId := r.Header.Get("x-request-id"); requestId != "" {
 				w.Header().Set("x-request-id", requestId)
@@ -88,6 +85,7 @@ func OtelMiddleware(meterProvider metric.MeterProvider) func(http.Handler) http.
 			startTime := time.Now()
 
 			handler.ServeHTTP(rw, r.WithContext(ctx))
+
 			duration := time.Since(startTime).Seconds()
 
 			status := "success"
@@ -107,6 +105,25 @@ func OtelMiddleware(meterProvider metric.MeterProvider) func(http.Handler) http.
 				metric.WithAttributeSet(attribute.NewSet(attributes...)))
 		})
 	}
+}
+
+func getRoutePattern(r *http.Request) string {
+	rctx := chi.RouteContext(r.Context())
+	if pattern := rctx.RoutePattern(); pattern != "" {
+		return pattern
+	}
+
+	routePath := r.URL.Path
+	if r.URL.RawPath != "" {
+		routePath = r.URL.RawPath
+	}
+
+	tctx := chi.NewRouteContext()
+	if !rctx.Routes.Match(tctx, r.Method, routePath) {
+		return routePath
+	}
+
+	return tctx.RoutePattern()
 }
 
 func MustUlidParams(h ErrHandlerFunc, params ...string) http.HandlerFunc {
@@ -129,10 +146,11 @@ func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		rw := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		path := getRoutePattern(r)
 		log.Info().
 			Ctx(ctx).
 			Str("method", r.Method).
-			Str("path", r.URL.Path).
+			Str("path", path).
 			Str("remote.addr", r.RemoteAddr).
 			Msg("request started")
 		start := time.Now()
@@ -143,7 +161,7 @@ func RequestLogger(next http.Handler) http.Handler {
 		log.Info().
 			Ctx(ctx).
 			Str("method", r.Method).
-			Str("path", r.URL.Path).
+			Str("path", path).
 			Str("remote.addr", r.RemoteAddr).
 			Int("status", rw.Status()).
 			Str("status.text", http.StatusText(rw.Status())).

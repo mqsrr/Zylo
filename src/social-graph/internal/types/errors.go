@@ -43,10 +43,6 @@ func NewNotFound(detail string) *ProblemResponse {
 	return NewAppError("Not Found", detail, "https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.4", http.StatusNotFound, errors.New(detail))
 }
 
-func NewNotFoundErr(detail string, err error) *ProblemResponse {
-	return NewAppError("Not Found", detail, "https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.4", http.StatusNotFound, err)
-}
-
 func NewBadRequest(detail string) *ProblemResponse {
 	return NewAppError("Bad Request", detail, "https://datatracker.ietf.org/doc/html/rfc7231#section-6.5.1", http.StatusBadRequest, errors.New(detail))
 }

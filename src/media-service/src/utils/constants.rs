@@ -5,7 +5,6 @@ pub const REDIS_URL_SECRET: &str = "Media-Redis--ConnectionString";
 pub const REDIS_EXPIRE: &str = "Zylo-Redis--Expire";
 pub const RABBITMQ_URL_SECRET: &str = "Zylo-RabbitMq--ConnectionString";
 
-pub const EXPOSED_PORT: &str = "Media-API--ExposedPort";
 pub const GRPC_SERVER_ADDR: &str = "Media-gRPC--ServerAddr";
 pub const OTEL_COLLECTOR_ADDR: &str = "Zylo-OTEL--CollectorAddress";
 

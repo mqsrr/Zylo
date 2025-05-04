@@ -131,13 +131,13 @@ impl<R: ReplyRepository> ObservableReplyRepository<R> {
             KeyValue::new("query_type", operation_name.to_string()),
             KeyValue::new("table", target.to_string()),
         ];
-        
+
         self.request_latency.record(start_time.elapsed().as_secs_f64(), &attributes);
         attributes.push(KeyValue::new("status", status));
-        
+
         attributes.extend_from_slice(&self.attributes);
         self.request_count.add(1, &attributes);
-        
+
         if let Err(ref err) = result {
             span.record("error.type", "database_error")
                 .set_status(opentelemetry::trace::Status::error(err.to_string()));

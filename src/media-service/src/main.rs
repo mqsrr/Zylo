@@ -28,12 +28,12 @@ mod utils;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let config = AppConfig::new().await;
-    
+
     let trace_provider = init_traces(&config.otel_collector.address);
     let meter_provider = init_metrics(&config.otel_collector.address);
     let logger_provider = init_logs(&config.otel_collector.address);
     init_trace(&logger_provider, &trace_provider);
-    
+
     let mongo_db = init_db(&config.database).await;
     let cache_service = Arc::new(ObservableCacheService::new(RedisCacheService::new(
         config.redis.clone(),
@@ -71,9 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState::new(post_repo, user_repo, cache_service, amq_client, config).await;
 
     run_app(app_state, grpc_server).await?;
-    
     trace_provider.shutdown()?;
     meter_provider.shutdown()?;
     logger_provider.shutdown()?;
+
     Ok(())
 }

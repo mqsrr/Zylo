@@ -1,23 +1,16 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use async_trait::async_trait;
-use opentelemetry::{global, KeyValue};
-use opentelemetry::metrics::{Counter, Histogram};
-use redis::aio::MultiplexedConnection;
-use redis::RedisError;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use tokio::sync::Mutex;
-use tokio::time::sleep;
-use tracing::{field, info_span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::decorators::trace_server_error;
 use crate::errors;
-use crate::errors::redis_op_error;
 use crate::services::cache_service::CacheService;
 use crate::utils::constants::OTEL_SERVICE_NAME;
 use crate::utils::helpers::get_container_id;
+use async_trait::async_trait;
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::{KeyValue, global};
+use redis::aio::MultiplexedConnection;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use tracing::{field, info_span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub struct ObservableCacheService<C: CacheService + 'static> {
     inner: C,
@@ -43,7 +36,7 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
             .with_description("Time taken for cache operations")
             .with_boundaries(boundaries)
             .build();
-        
+
         let host_name = get_container_id().unwrap_or(String::from("0.0.0.0"));
         let attributes = vec![
             KeyValue::new("service", OTEL_SERVICE_NAME),
@@ -51,7 +44,7 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
             KeyValue::new("cache", "redis"),
             KeyValue::new("env", std::env::var("APP_ENV").unwrap_or(String::from("development")))
         ];
-        
+
         Self {
             inner,
             request_count,
@@ -67,7 +60,6 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
         operation_name: &str,
         namespace: &str,
         operation: F,
-        
     ) -> Result<R, errors::RedisError>
     where
         F: Future<Output = Result<R, errors::RedisError>>,
@@ -99,12 +91,12 @@ impl<T: CacheService + 'static> ObservableCacheService<T> {
 
         attributes.push(KeyValue::new("status", status));
         attributes.extend_from_slice(&self.attributes);
-        
+
         self.request_count.add(1, &attributes);
 
         let result = trace_server_error(result, &span, "cache_error")?;
         span.set_status(opentelemetry::trace::Status::Ok);
-        
+
         Ok(result)
     }
 }
@@ -119,9 +111,8 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             "redis",
             self.inner.open_redis_connection(),
         )
-            .await
+        .await
     }
-
 
     async fn hget<U: DeserializeOwned>(
         &self,
@@ -135,7 +126,7 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.hget(key, field),
         )
-            .await
+        .await
     }
 
     async fn hset<U: Serialize + Sync + Send>(
@@ -151,9 +142,8 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.hset(key, field, value),
         )
-            .await
+        .await
     }
-    
 
     async fn hdelete(&self, key: &str, field: &str) -> Result<(), errors::RedisError> {
         self.track_method(
@@ -163,7 +153,7 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.hdelete(key, field),
         )
-            .await
+        .await
     }
 
     async fn hdelete_all(&self, key: &str, pattern: &str) -> Result<(), errors::RedisError> {
@@ -174,7 +164,7 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.hdelete_all(key, pattern),
         )
-            .await
+        .await
     }
 
     async fn hget_with_conn<T: DeserializeOwned>(
@@ -190,7 +180,7 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.hget_with_conn::<T>(conn, key, field),
         )
-            .await
+        .await
     }
 
     async fn hdel_with_conn(
@@ -206,9 +196,8 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.hdel_with_conn(conn, key, field),
         )
-            .await
+        .await
     }
-
 
     async fn delete_all_with_conn(
         &self,
@@ -223,6 +212,6 @@ impl<C: CacheService + 'static> CacheService for ObservableCacheService<C> {
             key,
             self.inner.delete_all_with_conn(conn, key, pattern),
         )
-            .await
+        .await
     }
 }

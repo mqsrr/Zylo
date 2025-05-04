@@ -1,19 +1,11 @@
 use crate::services::key_vault::KeyVault;
-use crate::utils::constants::{EXPOSED_PORT, GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, OTEL_COLLECTOR_ADDR, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
+use crate::utils::constants::{GRPC_SERVER_ADDR, JWT_AUDIENCE, JWT_ISSUER, JWT_SECRET, OTEL_COLLECTOR_ADDR, POSTGRES_CONNECTION_STRING, RABBITMQ_URL_SECRET, REDIS_CONNECTION_STRING, REDIS_EXPIRE};
 use serde::Deserialize;
 use std::fs;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Server {
-    pub port: u16,
-}
-
-impl Server {
-    async fn from_key_vault(key_vault: &KeyVault) -> Self {
-        Self{
-            port: key_vault.get_secret(EXPOSED_PORT).await.unwrap().parse().unwrap(),
-        }
-    }
+pub struct Global {
+    pub server_port: u16,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -101,7 +93,7 @@ impl OtelCollector {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
-    pub server: Server,
+    pub global: Global,
     pub database: Database,
     pub redis: Redis,
     pub auth: Auth,
@@ -127,8 +119,12 @@ impl AppConfig {
     }
     
     async fn from_key_vault(key_vault: &KeyVault) -> Self {
+        let global = Global{
+            server_port: std::env::var("EXPOSED_PORT").unwrap_or_default().parse().unwrap_or(8080),
+        };
+
         Self {
-            server: Server::from_key_vault(key_vault).await,
+            global,
             database: Database::from_key_vault(key_vault).await,
             redis: Redis::from_key_vault(key_vault).await,
             auth: Auth::from_key_vault(key_vault).await,

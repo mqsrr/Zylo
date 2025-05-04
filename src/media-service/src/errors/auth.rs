@@ -9,6 +9,9 @@ pub enum AuthError {
 
     #[error("Invalid bearer token")]
     InvalidToken,
+
+    #[error("Email is not confirmed")]
+    UnverifiedEmail,
 }
 
 impl ProblemResponse for AuthError {
@@ -16,13 +19,19 @@ impl ProblemResponse for AuthError {
         StatusCode::UNAUTHORIZED
     }
 
-    fn title(&self) -> &str {
+    fn title(&self) -> &'static str {
         "Authentication Error"
     }
 
     fn detail(&self) -> String {
         self.to_string()
     }
-    
-    
+
+    fn public_detail(&self) -> String {
+        match self {
+            AuthError::TokenNotFound => String::from("Bearer token not found"),
+            AuthError::InvalidToken => String::from("Invalid token"),
+            AuthError::UnverifiedEmail => String::from("Email is not confirmed"),
+        }
+    }
 }
