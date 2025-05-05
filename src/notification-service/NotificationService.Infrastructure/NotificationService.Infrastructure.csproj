@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FluentEmail.Liquid" Version="3.0.2" />
+        <PackageReference Include="FluentEmail.Mailgun" Version="3.0.2" />
+        <PackageReference Include="Microsoft.Azure.SignalR" Version="1.30.3" />
+        <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
+    </ItemGroup>
+    
+    <ItemGroup>
+      <ProjectReference Include="..\NotificationService.Application\NotificationService.Application.csproj" />
+    </ItemGroup>
+
+</Project>

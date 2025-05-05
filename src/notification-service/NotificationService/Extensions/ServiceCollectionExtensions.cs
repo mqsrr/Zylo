@@ -1,117 +1,33 @@
-﻿using System.Collections.Concurrent;
-using System.Reflection;
-using Asp.Versioning;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-using NotificationService.Builders;
-using NotificationService.Factories;
-using NotificationService.Factories.Abstractions;
-using NotificationService.Helpers;
-using NotificationService.HostedServices;
-using NotificationService.Models;
-using NotificationService.Services;
-using NotificationService.Services.Abstractions;
-using NotificationService.Settings;
+﻿using Asp.Versioning;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using RabbitMQ.Client;
-using StackExchange.Redis;
 
 namespace NotificationService.Extensions;
 
 internal static class ServiceCollectionExtensions
-{ 
-    public static WebApplicationBuilder ConfigureOpenTelemetry(this WebApplicationBuilder builder, string collectorAddress)
+{
+    public static IServiceCollection ConfigureOpenTelemetry(this IServiceCollection services, string collectorAddress, ILoggingBuilder loggingBuilder)
     {
+        loggingBuilder.AddOpenTelemetry(options => options.AddOtlpExporter(exporterOptions => exporterOptions.Endpoint = new Uri(collectorAddress)));
 
-        builder.Logging.AddOpenTelemetry(options => options.AddOtlpExporter(exporterOptions => exporterOptions.Endpoint = new Uri(collectorAddress)));
-        
-        builder.Services.AddOpenTelemetry()
+        services.AddOpenTelemetry()
             .ConfigureResource(resourceBuilder => resourceBuilder.AddTelemetrySdk().AddService(serviceName: "notification-service", serviceVersion: "1.0.0"))
             .WithMetrics(providerBuilder =>
             {
                 providerBuilder.AddRuntimeInstrumentation()
-                    .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddMeter("Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Server.Kestrel", "System.Net.Http", Instrumentation.MeterName)
-                    .AddView("notification_service_api_request_duration",
-                        new ExplicitBucketHistogramConfiguration
-                        {
-                            Boundaries = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
-                        })
                     .AddOtlpExporter(options => options.Endpoint = new Uri(collectorAddress));
             })
             .WithTracing(providerBuilder =>
             {
-                providerBuilder.AddAspNetCoreInstrumentation(options =>
-                    {
-                        options.EnrichWithHttpResponse = (activity, httpRequest) => activity.SetTag("http.request.id", httpRequest.HttpContext.TraceIdentifier);
-                    })
+                providerBuilder
                     .AddHttpClientInstrumentation()
                     .AddOtlpExporter(options => options.Endpoint = new Uri(collectorAddress));
             });
 
-        builder.Services.AddSingleton<Instrumentation>();
-        return builder;
-    }
-
-    public static IServiceCollection ConfigureJsonSerializer(this IServiceCollection services)
-    {
-        JsonConvert.DefaultSettings = () => new JsonSerializerSettings
-        {
-            Formatting = Formatting.Indented,
-            TypeNameHandling = TypeNameHandling.None,
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
-            Converters = [new UserIdConverter()]
-        };
-
         return services;
-    }
-
-    public static IServiceCollection AddOptionsSettingsWithValidation<TOptions>(
-        this IServiceCollection services,
-        IConfiguration configuration)
-        where TOptions : BaseSettings
-    {
-        if (Activator.CreateInstance<TOptions>() is not BaseSettings instance)
-        {
-            throw new InvalidOperationException($"Could not create instance of {typeof(TOptions).Name}");
-        }
-
-        return services
-            .AddOptionsWithValidateOnStart<TOptions>()
-            .Bind(configuration.GetRequiredSection(instance.SectionName))
-            .Services;
-    }
-
-    public static IServiceCollection AddApplicationSettings(
-        this IServiceCollection services,
-        IConfiguration configuration)
-    {
-        var baseSettingsType = typeof(BaseSettings);
-        var allSettings = Assembly.GetAssembly(baseSettingsType)!
-            .ExportedTypes
-            .Where(t => t is { IsInterface: false, IsAbstract: false } && t.BaseType == baseSettingsType);
-
-        foreach (var settings in allSettings)
-        {
-            var method = typeof(ServiceCollectionExtensions)
-                .GetMethod(nameof(AddOptionsSettingsWithValidation))!
-                .MakeGenericMethod(settings);
-
-            method.Invoke(null, [services, configuration]);
-        }
-
-        return services;
-    }
-
-    public static IHealthChecksBuilder AddServiceHealthChecks(this IServiceCollection services, WebApplicationBuilder builder)
-    {
-        return services.AddHealthChecks()
-            .AddRedis(builder.Configuration["Redis:ConnectionString"]!, name: "Redis", tags: ["Redis"])
-            .AddNpgSql(builder.Configuration["Postgres:ConnectionString"]!, name: "Postgres", tags: ["Database"]);
     }
 
     public static IApiVersioningBuilder AddApiVersioning(this IServiceCollection services, IApiVersionReader reader, bool assumeDefaultVersion = true)
@@ -124,55 +40,5 @@ internal static class ServiceCollectionExtensions
                 x.AssumeDefaultVersionWhenUnspecified = assumeDefaultVersion;
             })
             .AddMvc();
-    }
-
-    public static IServiceCollection AddConnectionMultiplexer(this IServiceCollection services, string connectionString)
-    {
-        var connection = ConnectionMultiplexer.Connect(connectionString);
-        var response = connection.GetDatabase().Execute("PING");
-        if (response.IsNull)
-        {
-            throw new Exception("Redis connection failed");
-        }
-
-        services.AddSingleton<IConnectionMultiplexer>(connection);
-        return services;
-    }
-
-    public static IServiceCollection AddRabbitMqBus(
-        this IServiceCollection services,
-        Action<RabbitMqBuilder> configure)
-    {
-        services.AddSingleton<ConcurrentDictionary<Type, IChannel>>();
-        services.AddSingleton<IRabbitMqConnectionFactory, RabbitMqConnectionFactory>();
-        services.AddSingleton<IRabbitMqBus, RabbitMqBus>();
-
-        services.AddOptions<RabbitMqBusSettings>()
-            .Configure<IServiceProvider>((settings, _) =>
-            {
-                var builder = new RabbitMqBuilder();
-                configure(builder);
-
-                var busSettings = builder.Build();
-                settings.Publishers = busSettings.Publishers;
-                settings.Consumers = busSettings.Consumers;
-            });
-
-        var consumerType = typeof(IConsumer<>);
-        var consumerMap = Assembly.GetExecutingAssembly()
-            .GetTypes()
-            .Where(t => t is { IsInterface: false, IsAbstract: false })
-            .SelectMany(t => t.GetInterfaces()
-                .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == consumerType)
-                .Select(i => new { Interface = i, Implementation = t }))
-            .ToDictionary(x => x.Interface, x => x.Implementation);
-
-        foreach (var (interfaceType, implementationType) in consumerMap)
-        {
-            services.AddScoped(interfaceType, implementationType);
-        }
-
-        services.AddHostedService<RabbitMqBusHostedService>();
-        return services;
     }
 }

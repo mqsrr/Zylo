@@ -8,7 +8,7 @@ namespace NotificationService.Extensions;
 
 internal static class ConfigurationBuilderExtensions
 {
-    public static IConfigurationBuilder AddEnvFile(this IConfigurationBuilder config, string filePath = ".env")
+    internal static IConfigurationBuilder AddEnvFile(this IConfigurationBuilder config, string filePath = ".env")
     {
         if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == Environments.Production)
         {
@@ -49,7 +49,7 @@ internal static class ConfigurationBuilderExtensions
         return config;
     }
 
-    public static IConfigurationBuilder AddAzureKeyVault(this IConfigurationBuilder configuration)
+    internal static IConfigurationBuilder AddAzureKeyVault(this IConfigurationBuilder configuration)
     {
         configuration.AddEnvironmentVariables();
         string? environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"); 
@@ -69,7 +69,7 @@ internal static class ConfigurationBuilderExtensions
             new PrefixKeyVaultSecretManager(["NotificationService", "Zylo"]));
     }
 
-    public static IConfigurationBuilder AddJwtBearer(this IConfigurationBuilder config, WebApplicationBuilder builder)
+    internal static IConfigurationBuilder AddJwtBearer(this IConfigurationBuilder config, WebApplicationBuilder builder)
     {
         builder.Services.AddAuthorization(options =>
             {
