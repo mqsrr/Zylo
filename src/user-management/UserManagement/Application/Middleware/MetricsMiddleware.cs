@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using UserManagement.Application.Helpers;
+using UserManagement.Infrastructure.Services.Common;
 
 namespace UserManagement.Application.Middleware;
 

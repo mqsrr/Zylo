@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+
+
+    <ItemGroup>
+        <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
+        <PackageReference Include="AspNetCore.HealthChecks.Redis" Version="9.0.0" />
+        <PackageReference Include="AWSSDK.S3" Version="4.0.0.1" />
+        <PackageReference Include="Dapper" Version="2.1.66" />
+        <PackageReference Include="Grpc.AspNetCore.HealthChecks" Version="2.71.0" />
+        <PackageReference Include="Grpc.AspNetCore.Server" Version="2.71.0" />
+        <PackageReference Include="Grpc.Tools" Version="2.71.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Npgsql" Version="9.0.3" />
+        <PackageReference Include="NRedisStack" Version="1.0.0" />
+        <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
+        <PackageReference Include="Scrutor" Version="6.0.1" />
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.8" />
+        <PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.4" />
+    </ItemGroup>
+    
+    <ItemGroup>
+      <ProjectReference Include="..\UserManagement.Application\UserManagement.Application.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Protobuf Include="Protos\UserProfileService.proto">
+        <Generator>MSBuild:Compile</Generator>
+      </Protobuf>
+    </ItemGroup>
+
+</Project>

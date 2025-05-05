@@ -1,11 +1,12 @@
 ﻿using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
+using UserManagement.Application.Common;
 using UserManagement.Application.Contracts.Requests.Auth;
-using UserManagement.Application.Extensions;
 using UserManagement.Application.Helpers;
 using UserManagement.Application.Mappers;
-using UserManagement.Application.Models;
-using UserManagement.Application.Services.Abstractions;
+using UserManagement.Application.Services.Auth;
+using UserManagement.Domain.Auth;
+using UserManagement.Mappers;
 
 namespace UserManagement.Controllers;
 

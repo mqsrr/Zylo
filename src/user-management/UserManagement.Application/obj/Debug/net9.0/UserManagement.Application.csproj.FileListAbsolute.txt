@@ -1,0 +1,16 @@
+D:\Codes\Zylo\src\user-management\UserManagement.Application\bin\Debug\net9.0\UserManagement.Application.deps.json
+D:\Codes\Zylo\src\user-management\UserManagement.Application\bin\Debug\net9.0\UserManagement.Application.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Application\bin\Debug\net9.0\UserManagement.Application.pdb
+D:\Codes\Zylo\src\user-management\UserManagement.Application\bin\Debug\net9.0\UserManagement.Domain.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Application\bin\Debug\net9.0\UserManagement.Domain.pdb
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.csproj.AssemblyReference.cache
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.GeneratedMSBuildEditorConfig.editorconfig
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.AssemblyInfoInputs.cache
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.AssemblyInfo.cs
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.csproj.CoreCompileInputs.cache
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.sourcelink.json
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserMana.22515BBA.Up2Date
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\refint\UserManagement.Application.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\UserManagement.Application.pdb
+D:\Codes\Zylo\src\user-management\UserManagement.Application\obj\Debug\net9.0\ref\UserManagement.Application.dll

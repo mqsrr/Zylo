@@ -1,0 +1,13 @@
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\bin\Debug\net9.0\UserManagement.Domain.deps.json
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\bin\Debug\net9.0\UserManagement.Domain.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\bin\Debug\net9.0\UserManagement.Domain.pdb
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.csproj.AssemblyReference.cache
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.GeneratedMSBuildEditorConfig.editorconfig
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.AssemblyInfoInputs.cache
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.AssemblyInfo.cs
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.csproj.CoreCompileInputs.cache
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.sourcelink.json
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\refint\UserManagement.Domain.dll
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\UserManagement.Domain.pdb
+D:\Codes\Zylo\src\user-management\UserManagement.Domain\obj\Debug\net9.0\ref\UserManagement.Domain.dll
